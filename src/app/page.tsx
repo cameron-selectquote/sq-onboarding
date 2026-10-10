@@ -26,6 +26,11 @@ export default function Home() {
       <h1>Provision</h1>
       <p>First-pass build. Domain core in <code>src/lib</code>, seeded in-memory store, Jest tests.</p>
       <h2>Live API endpoints</h2>
+      <p>
+        Explore and test them interactively in{" "}
+        <a href="/api-docs">Swagger UI</a> (raw spec at{" "}
+        <a href="/api/openapi"><code>/api/openapi</code></a>).
+      </p>
       <ul>
         {endpoints.map((e) => (
           <li key={e}><code>{e}</code></li>
