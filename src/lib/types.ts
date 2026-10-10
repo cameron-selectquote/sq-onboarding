@@ -1,0 +1,157 @@
+/**
+ * Domain types — the hour-1 contract (BuildPlan §2).
+ *
+ * These are the shapes every workstream builds against. Keep them stable;
+ * changing a shape here is a coordination event for the whole team.
+ */
+
+// ---- Enums / unions -------------------------------------------------------
+
+export type Role = "admin" | "specialist" | "manager" | "team_member" | "hire";
+
+export type Team = "hr" | "it" | "vendor" | "facilities" | "finance";
+
+export type Billing = "monthly" | "annual";
+
+/** How a cost hits the ledger. */
+export type CostType = "none" | "one_time" | "recurring";
+
+export type TaskStatus =
+  | "todo"
+  | "in_progress"
+  | "review"
+  | "blocked"
+  | "done";
+
+export type LicenseStatus = "active" | "idle" | "reclaim" | "revoked";
+
+export type AssetStatus =
+  | "in_stock"
+  | "assigned"
+  | "in_repair"
+  | "returned"
+  | "retired";
+
+/** What kind of thing a ledger entry represents. */
+export type LedgerEntryType =
+  | "license_grant"
+  | "license_revoke"
+  | "asset_purchase"
+  | "asset_return"
+  | "fee";
+
+// ---- Tables ---------------------------------------------------------------
+
+export interface Company {
+  id: string;
+  name: string;
+  size: number;
+  industry: string;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  team: Team | null;
+  managerId: string | null;
+}
+
+export interface AppCatalogItem {
+  id: string;
+  name: string;
+  category: string;
+  costPerSeat: number;
+  billing: Billing;
+}
+
+export interface AssetCatalogItem {
+  id: string;
+  name: string;
+  category: string;
+  standardCost: number;
+  depreciationMonths: number;
+}
+
+export interface Asset {
+  id: string;
+  catalogId: string;
+  serialTag: string;
+  status: AssetStatus;
+  assignedToHireId: string | null;
+  acquiredAt: string | null; // ISO date
+  returnedAt: string | null; // ISO date
+}
+
+export interface Template {
+  id: string;
+  roleName: string;
+}
+
+export interface TemplateTask {
+  id: string;
+  templateId: string;
+  title: string;
+  ownerTeam: Team;
+  cost: number;
+  costType: CostType;
+}
+
+export interface Hire {
+  id: string;
+  name: string;
+  email: string;
+  roleName: string;
+  managerId: string | null;
+  startDate: string; // ISO date
+  cohort: string | null;
+}
+
+export interface Task {
+  id: string;
+  hireId: string;
+  title: string;
+  ownerTeam: Team;
+  status: TaskStatus;
+  cost: number;
+  costType: CostType;
+}
+
+export interface License {
+  id: string;
+  hireId: string;
+  appId: string;
+  status: LicenseStatus;
+  grantedAt: string | null; // ISO date
+  lastUsedAt: string | null; // ISO date
+}
+
+export interface Budget {
+  id: string;
+  team: Team;
+  period: string; // e.g. "2026-Q1"
+  limit: number;
+  spent: number;
+}
+
+export interface LedgerEntry {
+  id: string;
+  hireId: string | null;
+  type: LedgerEntryType;
+  label: string;
+  /** Positive = spend, negative = credit/recovery. */
+  amount: number;
+  costType: CostType;
+  refTable: string | null;
+  refId: string | null;
+  createdAt: string; // ISO datetime
+}
+
+export interface Notification {
+  id: string;
+  targetTeam: Team;
+  message: string;
+  batchId: string | null;
+  read: boolean;
+}
