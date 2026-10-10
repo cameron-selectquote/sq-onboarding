@@ -1,7 +1,28 @@
 # Provision — Build Plan
 
 **Hack Midwest 2026 · Flex "Best FinTech App" · Team of 5 · 24 hours**
-Companion to `FeatureBrief.md`. The mockups in this repo (`index.html`, `specialist.html`, `manager.html`, `team.html`, `finance.html`, `myonboarding.html`, `setup.html`, `brief-preview.html`) are the visual spec — build to match them.
+Companion to `FeatureBrief.md`. The mockups (`index.html`, `specialist.html`, `manager.html`, `team.html`, `finance.html`, `myonboarding.html`, `setup.html`, `brief-preview.html`) are the visual spec — build to match them.
+
+> ## ⚠️ Status note (read first)
+> This plan is kept as the historical record of the 24h build. A few things have
+> drifted from the current repo — don't take it literally:
+> - **The event timeline (§5) has passed.** Treat the clock/checkpoint language as
+>   history, not a live countdown.
+> - **The mockups and `FeatureBrief.md` are not in this branch.** The named `*.html`
+>   files and `assets/provision.css` / `assets/provision.js` (referenced in §4)
+>   live elsewhere or were cut. Role **views (UI) are not built on this branch** —
+>   the role-views work lives on `main`, which `FSE` is behind.
+> - **Persistence is in-memory, not Supabase.** The build ships a `Repository`
+>   interface with an in-memory implementation; `schema.sql` is the Postgres
+>   *target*. Supabase (§1/§5) is aspirational, not current.
+> - **API surface (§3) is partly built.** Live routes: `hires` (+`/import`, `/:id`),
+>   `tasks/:id`, `licenses/:id/grant|revoke`, `pos`, `assets` (+`/:id/return`),
+>   `finance/summary`, `ai/match-template` (11 total). **Not built:**
+>   `notifications` and `ai/draft-brief` (types exist for `notification`, no route).
+> - **Finance workstream (§4):** ledger, cost-per-hire, recurring burn, budgets,
+>   `finance/summary`, PO endpoint — done. **Projected run-rate — now done**
+>   (`projectedRunRate` in `src/lib/finance.ts`, exposed as `projectedAnnualRunRate`
+>   on the summary payload). The Finance **view** is still open.
 
 ---
 

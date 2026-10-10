@@ -15,8 +15,21 @@ in-memory behind a swappable interface so nobody is blocked on infra.
 
 ## Prerequisites
 
-- **Node.js 20+** (built on Node 25)
+- **Node.js 20+**
 - **npm 10+**
+
+### npm registry (SelectQuote CodeArtifact)
+
+Dependencies install from SelectQuote's AWS CodeArtifact registry, which needs a
+short-lived token (good for ~12h). If `npm install` fails with `E401`, refresh it:
+
+```powershell
+aws sso login --profile prod
+aws codeartifact login --tool npm --domain selectquote --domain-owner 586672212047 --repository selectquote-npm --region us-west-2 --profile prod
+```
+
+The `prod` profile is the one with CodeArtifact access (account `586672212047`).
+Re-run both commands roughly once a day when the token expires.
 
 ## Quick start
 
@@ -51,7 +64,8 @@ With `npm run dev` running:
 # list seeded hires
 curl http://localhost:3000/api/hires
 
-# finance summary (burn, reclaimable, assets on hand, overspent teams)
+# finance summary (monthly burn, projected annual run-rate, reclaimable,
+# assets on hand, overspent teams)
 curl http://localhost:3000/api/finance/summary
 
 # AI template match
@@ -99,7 +113,7 @@ BuildPlan.md  feature brief, timeline, cut lines
 
 ## Status
 
-First-pass build: domain core + 11 API routes + seed data + 43 passing unit
+First-pass build: domain core + 11 API routes + seed data + 49 passing unit
 tests. Persistence is in-memory; `schema.sql` is the Postgres target DevOps
 swaps in behind the `Repository` interface. AI is mocked behind an `AiClient`
 seam ready for the event's inference endpoint.
