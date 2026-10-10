@@ -18,19 +18,6 @@ SQLite file behind a swappable interface so nobody is blocked on infra.
 - **Node.js 20+**
 - **npm 10+**
 
-### npm registry (SelectQuote CodeArtifact)
-
-Dependencies install from SelectQuote's AWS CodeArtifact registry, which needs a
-short-lived token (good for ~12h). If `npm install` fails with `E401`, refresh it:
-
-```powershell
-aws sso login --profile prod
-aws codeartifact login --tool npm --domain selectquote --domain-owner 586672212047 --repository selectquote-npm --region us-west-2 --profile prod
-```
-
-The `prod` profile is the one with CodeArtifact access (account `586672212047`).
-Re-run both commands roughly once a day when the token expires.
-
 ### Native module (better-sqlite3)
 
 `npm install` pulls in `better-sqlite3`, a native module. It installs a prebuilt
