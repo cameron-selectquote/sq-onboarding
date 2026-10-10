@@ -48,7 +48,7 @@ export default async function MyOnboarding({ searchParams }: { searchParams: Pro
             </span>
             <h1 className="title" style={{ fontSize: 36, lineHeight: 1.05 }}>
               {left === 0 ? (
-                <>You're all set, {first}.</>
+                <>You&apos;re all set, {first}.</>
               ) : (
                 <>
                   Almost there, {first}.
@@ -77,7 +77,7 @@ export default async function MyOnboarding({ searchParams }: { searchParams: Pro
             <section className="turn">
               <span className="turn-kicker">Up next</span>
               <span className="turn-title">{next.title}</span>
-              <span style={{ fontSize: 13 }}>{teamLabel(next.ownerTeam)} is on it. We'll let you know when it's done.</span>
+              <span style={{ fontSize: 13 }}>{teamLabel(next.ownerTeam)} is on it. We&apos;ll let you know when it&apos;s done.</span>
             </section>
           )}
           <section className="panel" style={{ padding: 20, gap: 12 }}>
@@ -91,7 +91,7 @@ export default async function MyOnboarding({ searchParams }: { searchParams: Pro
                 </div>
               </div>
             ) : (
-              <span className="empty">We'll introduce your manager soon.</span>
+              <span className="empty">We&apos;ll introduce your manager soon.</span>
             )}
           </section>
         </div>
