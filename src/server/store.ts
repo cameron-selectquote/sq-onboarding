@@ -77,10 +77,24 @@ function services(): Services {
     // Seed only on a fresh store; a populated file is left as-is so data
     // survives restarts and re-seeding never collides on duplicate ids.
     globalForStore.__provisionSeeded = repo.isEmpty()
-      ? loadSeed(svc.repo)
+      ? loadSeed(svc.repo).then(() => loadOptionalHistory(svc.repo))
       : Promise.resolve();
   }
   return globalForStore.__provisionServices;
+}
+
+/**
+ * Load backdated ledger history if the local (gitignored) history module is
+ * present. It's optional dev-only demo data for trend views, so a missing file
+ * is expected for teammates and must not break seeding.
+ */
+async function loadOptionalHistory(repo: Repository): Promise<void> {
+  try {
+    const mod = await import("@/data/history");
+    await mod.loadHistory(repo);
+  } catch {
+    // No history module (not committed) — fine, trends just start empty.
+  }
 }
 
 /** Await before touching data in a route so any seed has finished loading. */

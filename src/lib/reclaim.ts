@@ -3,10 +3,17 @@
  *
  * Flags recoverable spend so the "reclaim banner goes green" demo beat has real
  * logic behind it:
- *   - idle:          an active license unused for more than N days
+ *   - idle:          an active license unused for more than N days (rule)
  *   - duplicate:     a hire holds >1 active license in the same app category
  *   - role_mismatch: a hire holds a license outside their role's allowed stack
+ *   - reclaim/idle:  a license already in that *status* (flagByStatus)
  *   - pending_return: an assigned asset for an offboarding hire
+ *
+ * `buildReclaimReport` is the single reclaim engine for the whole app: the
+ * finance dashboard's queue (src/server/queries.ts) is a presenter over it, and
+ * GET /api/reclaim returns it directly, so every surface reports one number.
+ * Recoverable spend is two unit-separated figures (recurringMonthly $/mo +
+ * oneTimeAssetResidual one-off $), never summed.
  *
  * Pure functions over plain records. No DB, no clock dependency except the
  * `asOf` you pass in (defaults to now, override in tests).
@@ -17,6 +24,7 @@ import type { AppCatalogItem, AssetCatalogItem, Asset, License } from "./types";
 
 export type ReclaimReason =
   | "idle"
+  | "reclaim"
   | "duplicate"
   | "role_mismatch"
   | "pending_return";
@@ -130,6 +138,24 @@ export function flagLicenses(
 }
 
 /**
+ * Flag licenses already in a reclaimable *status* (`idle` or `reclaim`),
+ * independent of the usage/duplicate/role rules. These are seats someone has
+ * explicitly marked, versus `flagLicenses` which infers from behavior.
+ */
+export function flagByStatus(licenses: License[]): LicenseReclaimFlag[] {
+  return licenses
+    .filter((l) => l.status === "idle" || l.status === "reclaim")
+    .map((l) => ({
+      kind: "license" as const,
+      licenseId: l.id,
+      hireId: l.hireId,
+      appId: l.appId,
+      reason: l.status as ReclaimReason,
+      detail: l.status === "reclaim" ? "Marked for reclaim" : "Status: idle",
+    }));
+}
+
+/**
  * Flag assets still assigned to hires that are offboarding (pending return).
  * `offboardingHireIds` is the set of hires whose assets should come back.
  */
@@ -158,18 +184,28 @@ export function flagAssets(
 export interface ReclaimReport {
   licenseFlags: LicenseReclaimFlag[];
   assetFlags: AssetReclaimFlag[];
-  /** Monthly-normalized recoverable dollars. Always >= 0. */
-  reclaimableTotal: number;
+  /**
+   * Recurring monthly dollars recoverable from flagged license seats ($/mo).
+   * Kept separate from one-time asset recovery so the two units never mix.
+   */
+  recurringMonthly: number;
+  /**
+   * One-time dollars recoverable from the residual value of pending-return
+   * assets (one-off $, not monthly).
+   */
+  oneTimeAssetResidual: number;
 }
 
 /**
  * Run the reclaim rules and total the recoverable spend. This is what the
  * `GET /api/reclaim` route returns, kept pure so the route stays thin.
  *
- * The total is:
- *   - recurring monthly cost of each flagged license's app, counted once per
- *     license even if a license trips more than one rule, plus
- *   - residual (depreciated) value of each pending-return asset.
+ * Recoverable spend is reported as two unit-separated figures — never summed,
+ * because one is per-month and the other is a one-off:
+ *   - `recurringMonthly`: monthly cost of each flagged license's app, counted
+ *     once per license even if a license trips more than one rule.
+ *   - `oneTimeAssetResidual`: residual (depreciated) value of each
+ *     pending-return asset.
  */
 export function buildReclaimReport(input: {
   licenses: License[];
@@ -182,10 +218,21 @@ export function buildReclaimReport(input: {
 }): ReclaimReport {
   const asOf = input.asOf ?? new Date();
 
-  const licenseFlags = flagLicenses(input.licenses, input.apps, {
+  // Union two sources of reclaimable seats, deduped by license id:
+  //   - rule-based: usage/duplicate/role-mismatch (flagLicenses)
+  //   - status-based: already marked idle/reclaim (flagByStatus)
+  // Rule flags win when a license appears in both, so the more specific reason
+  // (e.g. "duplicate") is reported over the generic status.
+  const ruleFlags = flagLicenses(input.licenses, input.apps, {
     asOf,
     idleDays: input.idleDays,
   });
+  const statusFlags = flagByStatus(input.licenses);
+  const flagByLicenseId = new Map<string, LicenseReclaimFlag>();
+  for (const f of statusFlags) flagByLicenseId.set(f.licenseId, f);
+  for (const f of ruleFlags) flagByLicenseId.set(f.licenseId, f); // rule wins
+  const licenseFlags = [...flagByLicenseId.values()];
+
   const assetFlags = flagAssets(input.assets, input.offboardingHireIds);
 
   const appById = new Map(input.apps.map((a) => [a.id, a]));
@@ -213,7 +260,8 @@ export function buildReclaimReport(input: {
   return {
     licenseFlags,
     assetFlags,
-    reclaimableTotal: licenseReclaim + assetReclaim,
+    recurringMonthly: licenseReclaim,
+    oneTimeAssetResidual: assetReclaim,
   };
 }
 

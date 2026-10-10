@@ -124,9 +124,10 @@ describe("buildReclaimReport", () => {
     expect(report.assetFlags).toHaveLength(1);
     expect(report.assetFlags[0]!.reason).toBe("pending_return");
 
-    // total: github idle (21) + gitlab duplicate (19) + MBP residual (acquiredAt
-    // null -> full standardCost 2800) = 2840
-    expect(report.reclaimableTotal).toBe(21 + 19 + 2800);
+    // recurring: github idle (21/mo) + gitlab duplicate (19/mo) = 40/mo
+    expect(report.recurringMonthly).toBe(21 + 19);
+    // one-time: MBP residual (acquiredAt null -> full standardCost 2800)
+    expect(report.oneTimeAssetResidual).toBe(2800);
   });
 
   it("counts a license flagged for multiple reasons only once", () => {
@@ -149,8 +150,9 @@ describe("buildReclaimReport", () => {
     });
 
     // github is flagged idle; gitlab is flagged duplicate (second in category).
-    // Each license counted once: 21 (github) + 19 (gitlab) = 40.
-    expect(report.reclaimableTotal).toBe(21 + 19);
+    // Each license counted once: 21 (github) + 19 (gitlab) = 40/mo. No assets.
+    expect(report.recurringMonthly).toBe(21 + 19);
+    expect(report.oneTimeAssetResidual).toBe(0);
   });
 
   it("returns empty lists and a zero total when nothing is reclaimable", () => {
@@ -164,6 +166,7 @@ describe("buildReclaimReport", () => {
     });
     expect(report.licenseFlags).toHaveLength(0);
     expect(report.assetFlags).toHaveLength(0);
-    expect(report.reclaimableTotal).toBe(0);
+    expect(report.recurringMonthly).toBe(0);
+    expect(report.oneTimeAssetResidual).toBe(0);
   });
 });
