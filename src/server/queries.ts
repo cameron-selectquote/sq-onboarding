@@ -4,9 +4,11 @@
  */
 
 import { financeSummary, monthlyCost } from "@/lib/finance";
-import { flagLicenses } from "@/lib/reclaim";
+import { buildReclaimReport } from "@/lib/reclaim";
+import type { LicenseReclaimFlag } from "@/lib/reclaim";
 import type { FinanceSummary } from "@/lib/finance";
 import type { AppCatalogItem, Budget, LedgerEntry, License } from "@/lib/types";
+import { OFFBOARDING_COHORT } from "@/data/seed";
 import { getServices } from "./store";
 
 /** The payload behind GET /api/finance/summary. */
@@ -31,6 +33,14 @@ export async function getFinanceSummary(): Promise<{ summary: FinanceSummary; bu
     ledgerEntries,
     budgets,
   });
+
+  // Canonical "reclaimable": the summary and the finance dashboard must agree,
+  // so override finance.ts's status-only figure with the reclaim queue total
+  // (idle/reclaim + rule-flagged seats) that the overview tile and reclaim page
+  // already render. One computation (getReclaimQueue) behind both the API and
+  // the view, so they can't drift.
+  const { monthly: reclaimableMonthly } = await getReclaimQueue();
+  summary.reclaimable = reclaimableMonthly;
 
   return { summary, budgets };
 }
@@ -86,24 +96,24 @@ export interface QueueRow {
 }
 
 /**
- * Seats worth taking back: licenses already flagged idle/reclaim, plus active
- * seats the reclaim rules catch (stale, duplicate). One row per reason × app.
+ * Group the single reclaim engine's license flags into UI rows (one row per
+ * reason × app). This is a *presenter* over buildReclaimReport — it does no
+ * flagging of its own, so the dashboard and GET /api/reclaim can't diverge.
  */
-function buildQueue(licenses: License[], apps: AppCatalogItem[]): QueueRow[] {
+function toQueueRows(
+  licenseFlags: LicenseReclaimFlag[],
+  licenses: License[],
+  apps: AppCatalogItem[],
+): QueueRow[] {
   const appById = new Map(apps.map((a) => [a.id, a]));
-  const reasonById = new Map<string, string>();
-  for (const l of licenses) {
-    if (l.status === "idle" || l.status === "reclaim") reasonById.set(l.id, l.status);
-  }
-  for (const flag of flagLicenses(licenses, apps)) {
-    if (!reasonById.has(flag.licenseId)) reasonById.set(flag.licenseId, flag.reason);
-  }
+  const licenseById = new Map(licenses.map((l) => [l.id, l]));
 
   const rows = new Map<string, QueueRow>();
-  for (const l of licenses) {
-    const reason = reasonById.get(l.id);
-    const app = appById.get(l.appId);
-    if (!reason || !app) continue;
+  for (const flag of licenseFlags) {
+    const license = licenseById.get(flag.licenseId);
+    const app = license ? appById.get(license.appId) : undefined;
+    if (!license || !app) continue;
+    const reason = flag.reason;
     const key = `${reason}:${app.id}`;
     const row = rows.get(key) ?? {
       key,
@@ -112,7 +122,7 @@ function buildQueue(licenses: License[], apps: AppCatalogItem[]): QueueRow[] {
       licenseIds: [],
       monthly: 0,
     };
-    row.licenseIds.push(l.id);
+    row.licenseIds.push(license.id);
     row.monthly += monthlyCost(app.costPerSeat, app.billing);
     rows.set(key, row);
   }
@@ -120,12 +130,32 @@ function buildQueue(licenses: License[], apps: AppCatalogItem[]): QueueRow[] {
 }
 
 /**
- * The finance reclaim queue and its monthly total. The overview's Reclaimable
- * tile and the reclaim page both read this, so they always agree.
+ * The finance reclaim queue and its monthly total. Reads the single reclaim
+ * engine (buildReclaimReport) and groups its license flags for display, so the
+ * overview's Reclaimable tile, the reclaim page, and GET /api/reclaim all
+ * trace to one computation. `monthly` equals the report's `recurringMonthly`.
  */
 export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: number }> {
   const { repo } = await getServices();
-  const [licenses, apps] = await Promise.all([repo.licenses.list(), repo.appCatalog.list()]);
-  const rows = buildQueue(licenses, apps);
-  return { rows, monthly: rows.reduce((acc, r) => acc + r.monthly, 0) };
+  const [licenses, apps, assets, assetCatalog, hires] = await Promise.all([
+    repo.licenses.list(),
+    repo.appCatalog.list(),
+    repo.assets.list(),
+    repo.assetCatalog.list(),
+    repo.hires.list(),
+  ]);
+
+  const offboardingHireIds = new Set(
+    hires.filter((h) => h.cohort === OFFBOARDING_COHORT).map((h) => h.id),
+  );
+  const report = buildReclaimReport({
+    licenses,
+    apps,
+    assets,
+    assetCatalog,
+    offboardingHireIds,
+  });
+
+  const rows = toQueueRows(report.licenseFlags, licenses, apps);
+  return { rows, monthly: report.recurringMonthly };
 }

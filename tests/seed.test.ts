@@ -62,7 +62,8 @@ describe("seed data", () => {
       offboardingHireIds,
     });
 
-    expect(report.reclaimableTotal).toBeGreaterThan(0);
+    expect(report.recurringMonthly).toBeGreaterThan(0);
+    expect(report.oneTimeAssetResidual).toBeGreaterThan(0);
     expect(report.licenseFlags.length).toBeGreaterThan(0);
     expect(report.assetFlags.length).toBeGreaterThan(0);
   });
