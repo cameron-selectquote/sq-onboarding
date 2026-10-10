@@ -6,7 +6,7 @@
 import { financeSummary, monthlyCost } from "@/lib/finance";
 import { flagLicenses } from "@/lib/reclaim";
 import type { FinanceSummary } from "@/lib/finance";
-import type { AppCatalogItem, Budget, License } from "@/lib/types";
+import type { AppCatalogItem, Budget, LedgerEntry, License } from "@/lib/types";
 import { getServices } from "./store";
 
 /** The payload behind GET /api/finance/summary. */
@@ -33,6 +33,41 @@ export async function getFinanceSummary(): Promise<{ summary: FinanceSummary; bu
   });
 
   return { summary, budgets };
+}
+
+/** A ledger entry with the hire's display name resolved for the feed. */
+export interface LedgerFeedEntry extends LedgerEntry {
+  /** Hire name if the entry is tied to a hire, else null. */
+  hireName: string | null;
+}
+
+/** Default cap on how many entries the feed returns. */
+export const LEDGER_FEED_LIMIT = 50;
+
+/**
+ * The live ledger feed: entries newest-first, hire-name enriched, capped.
+ * Shared by GET /api/finance/ledger and the finance overview's ledger panel so
+ * the two can't drift. `limit` caps the result (defaults to LEDGER_FEED_LIMIT).
+ */
+export async function getLedgerFeed(
+  limit: number = LEDGER_FEED_LIMIT,
+): Promise<{ entries: LedgerFeedEntry[] }> {
+  const { repo } = await getServices();
+  const [ledgerEntries, hires] = await Promise.all([
+    repo.ledgerEntries.list(),
+    repo.hires.list(),
+  ]);
+
+  const hireById = new Map(hires.map((h) => [h.id, h]));
+  const entries = [...ledgerEntries]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, Math.max(0, limit))
+    .map((e) => ({
+      ...e,
+      hireName: (e.hireId && hireById.get(e.hireId)?.name) || null,
+    }));
+
+  return { entries };
 }
 
 const WHY: Record<string, string> = {

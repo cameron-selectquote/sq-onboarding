@@ -100,6 +100,9 @@ curl http://localhost:3000/api/hires
 # assets on hand, overspent teams)
 curl http://localhost:3000/api/finance/summary
 
+# live ledger feed (newest-first, hire-name enriched; optional ?limit=N)
+curl http://localhost:3000/api/finance/ledger
+
 # AI template match
 curl -X POST http://localhost:3000/api/ai/match-template `
   -H "Content-Type: application/json" `
@@ -110,7 +113,7 @@ Available endpoints: `POST /api/hires/import`, `GET /api/hires`,
 `GET /api/hires/:id`, `PATCH /api/tasks/:id`, `POST /api/licenses/:id/grant`,
 `POST /api/licenses/:id/revoke`, `POST /api/pos`, `GET /api/assets`,
 `POST /api/assets/:id/return`, `GET /api/finance/summary`,
-`POST /api/ai/match-template`.
+`GET /api/finance/ledger`, `POST /api/ai/match-template`.
 
 ## Project layout
 
@@ -146,7 +149,7 @@ BuildPlan.md  feature brief, timeline, cut lines
 
 ## Status
 
-First-pass build: domain core + 11 API routes + seed data + 66 passing unit
+First-pass build: domain core + 12 API routes + seed data + 66 passing unit
 tests. Persistence is a local SQLite file (`better-sqlite3`) behind the
 `Repository` interface; `schema.sql` is the Postgres target DevOps swaps in
 behind the same interface. AI is mocked behind an `AiClient` seam ready for the
