@@ -1,6 +1,6 @@
 import { getServices } from "@/server/store";
 import { getFinanceSummary, getReclaimQueue } from "@/server/queries";
-import { budgetBurnDown, costPerHire } from "@/lib/finance";
+import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, recurringAddedSince } from "@/lib/finance";
 import { Kpi, Meter, PageHead, Shell } from "../_components/Shell";
 import { money, teamLabel, timeAgo } from "../_components/format";
 import { FINANCE_NAV } from "./nav";
@@ -20,30 +20,58 @@ export default async function FinanceOverview() {
   ]);
   const hireById = new Map(hires.map((h) => [h.id, h]));
 
-  const today = new Date().toISOString().slice(0, 10);
-  const burnToday = entries
-    .filter((e) => e.costType === "recurring" && e.createdAt.startsWith(today))
-    .reduce((acc, e) => acc + e.amount, 0);
+  // Start of the local day — so "today" tracks the viewer's timezone, not UTC.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const burnToday = recurringAddedSince(entries, startOfToday);
 
   const spendingHires = hires.filter((h) => entries.some((e) => e.hireId === h.id));
-  const avgPerHire = spendingHires.length
-    ? spendingHires.reduce((acc, h) => acc + costPerHire(entries, h.id), 0) / spendingHires.length
-    : 0;
+  const avgPerHire = avgCostPerSpendingHire(entries, hires.map((h) => h.id));
 
   const recent = [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
-  const period = budgets[0]?.period ?? "";
+  // Recurring burn trend ("costs growing over time") + period-over-period deltas.
+  const burnSeries = cumulativeRecurringBurn(entries);
+  const mom = burnDelta(burnSeries, 1);
+  const yoy = burnDelta(burnSeries, 12);
+  const maxBurn = Math.max(1, ...burnSeries.map((p) => p.burn));
+  const fmtDelta = (d: { absolute: number; pct: number }) =>
+    `${d.absolute >= 0 ? "+" : "−"}${money(Math.abs(Math.round(d.absolute)))} (${d.pct >= 0 ? "+" : "−"}${Math.abs(Math.round(d.pct * 100))}%)`;
+  const monthLabel = (key: string) =>
+    new Date(`${key}-01T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  const monthYearLabel = (key: string) =>
+    new Date(`${key}-01T00:00:00Z`).toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+
+  // Eyebrow reflects the actual data range, not a hardcoded budget period, so
+  // the header can't claim a quarter the trend data spills outside of.
+  const first = burnSeries[0]?.month;
+  const last = burnSeries[burnSeries.length - 1]?.month;
+  const periodLabel = !first
+    ? (budgets[0]?.period ?? "onboarding")
+    : first === last
+      ? monthYearLabel(first)
+      : `${monthYearLabel(first)} – ${monthYearLabel(last!)}`;
 
   return (
     <Shell nav={FINANCE_NAV} active="/finance" who="Finance">
-      <PageHead eyebrow={`${period} · onboarding spend`} title="Where the money's going" />
+      <PageHead eyebrow={`${periodLabel} · onboarding spend`} title="Where the money's going" />
       <div className="kpis">
         <Kpi
           label="Recurring burn"
           value={money(Math.round(summary.recurringMonthlyBurn))}
           unit="/mo"
-          sub={burnToday === 0 ? "no change today" : `${burnToday > 0 ? "+" : ""}${money(burnToday)} today`}
+          sub={
+            mom.comparable
+              ? `${fmtDelta(mom)} MoM`
+              : burnToday === 0
+                ? "no change today"
+                : `${burnToday > 0 ? "+" : ""}${money(burnToday)} today`
+          }
         />
-        <Kpi label="Total spend" value={money(Math.round(summary.totalSpend))} sub={`${spendingHires.length} hires with spend`} />
+        <Kpi
+          label="Total spend"
+          value={money(Math.round(summary.totalSpend))}
+          sub={`${spendingHires.length} hires with spend`}
+        />
         <Kpi label="Avg cost per hire" value={money(Math.round(avgPerHire))} sub="seats + hardware + fees" />
         <Kpi
           label="Reclaimable"
@@ -99,6 +127,34 @@ export default async function FinanceOverview() {
           </div>
         </section>
       </div>
+      <section className="panel">
+        <div className="panel-head" style={{ paddingBottom: 6 }}>
+          <span className="panel-title">Recurring burn trend</span>
+          <span style={{ display: "flex", gap: 6 }}>
+            {mom.comparable && (
+              <span className={mom.absolute >= 0 ? "tag" : "tag tag-accent-2"}>
+                {fmtDelta(mom)} MoM
+              </span>
+            )}
+            {yoy.comparable && (
+              <span className={yoy.absolute >= 0 ? "tag" : "tag tag-accent-2"}>
+                {fmtDelta(yoy)} YoY
+              </span>
+            )}
+          </span>
+        </div>
+        {burnSeries.length === 0 && (
+          <span className="empty">No recurring spend yet. Grant a seat to start the burn.</span>
+        )}
+        {burnSeries.map((p) => (
+          <Meter
+            key={p.month}
+            label={monthLabel(p.month)}
+            value={`${money(Math.round(p.burn))}/mo`}
+            pct={(p.burn / maxBurn) * 100}
+          />
+        ))}
+      </section>
     </Shell>
   );
 }

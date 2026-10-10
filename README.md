@@ -15,8 +15,10 @@ SQLite file behind a swappable interface so nobody is blocked on infra.
 
 ## Prerequisites
 
-- **Node.js 20+** (built on Node 25)
+- **Node.js 20+**
 - **npm 10+**
+
+### Native module (better-sqlite3)
 
 `npm install` pulls in `better-sqlite3`, a native module. It installs a prebuilt
 binary on common platforms (no action needed). On an unsupported platform it
@@ -81,8 +83,12 @@ With `npm run dev` running:
 # list seeded hires
 curl http://localhost:3000/api/hires
 
-# finance summary (burn, reclaimable, assets on hand, overspent teams)
+# finance summary (monthly burn, projected annual run-rate, reclaimable,
+# assets on hand, overspent teams)
 curl http://localhost:3000/api/finance/summary
+
+# live ledger feed (newest-first, hire-name enriched; optional ?limit=N)
+curl http://localhost:3000/api/finance/ledger
 
 # AI template match
 curl -X POST http://localhost:3000/api/ai/match-template `
@@ -91,10 +97,11 @@ curl -X POST http://localhost:3000/api/ai/match-template `
 ```
 
 Available endpoints: `POST /api/hires/import`, `GET /api/hires`,
-`GET /api/hires/:id`, `PATCH /api/tasks/:id`, `POST /api/licenses/:id/grant`,
-`POST /api/licenses/:id/revoke`, `POST /api/pos`, `GET /api/assets`,
-`POST /api/assets/:id/return`, `GET /api/finance/summary`,
-`POST /api/ai/match-template`.
+`GET /api/hires/:id`, `GET /api/hires/:id/checklist`, `PATCH /api/tasks/:id`,
+`POST /api/licenses/:id/grant`, `POST /api/licenses/:id/revoke`, `POST /api/pos`,
+`GET /api/assets`, `POST /api/assets/:id/return`, `GET /api/catalog`,
+`GET /api/reclaim`, `GET /api/finance/summary`, `GET /api/finance/ledger`,
+`GET /api/openapi`, `POST /api/ai/match-template`.
 
 ## Project layout
 
@@ -130,7 +137,7 @@ BuildPlan.md  feature brief, timeline, cut lines
 
 ## Status
 
-First-pass build: domain core + 11 API routes + seed data + 57 passing unit
+First-pass build: domain core + 16 API routes + seed data + 78 passing unit
 tests. Persistence is a local SQLite file (`better-sqlite3`) behind the
 `Repository` interface; `schema.sql` is the Postgres target DevOps swaps in
 behind the same interface. AI is mocked behind an `AiClient` seam ready for the

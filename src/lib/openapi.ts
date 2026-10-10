@@ -27,7 +27,7 @@ export const openApiSpec = {
     { name: "Assets", description: "POs, inventory, returns" },
     { name: "Finance", description: "Cost-per-hire, burn, budgets" },
     { name: "Reclaim", description: "Recoverable spend report" },
-    { name: "AI", description: "Template matching" },
+    { name: "AI", description: "Template matching + welcome-brief drafting" },
   ],
   paths: {
     "/api/hires": {
@@ -485,6 +485,58 @@ export const openApiSpec = {
           },
           "400": {
             description: "title is required",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/ai/draft-brief": {
+      post: {
+        tags: ["AI"],
+        summary: "Draft welcome-brief blurbs from a hire's granted tools",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["hireId"],
+                properties: {
+                  hireId: { type: "string" },
+                },
+              },
+              example: { hireId: "hire_1" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Brief blurbs for the hire's active licenses",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    blurbs: { type: "array", items: { type: "object" } },
+                  },
+                },
+              },
+            },
+          },
+          "400": {
+            description: "hireId is required",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
+          },
+          "404": {
+            description: "Hire not found",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/Error" },

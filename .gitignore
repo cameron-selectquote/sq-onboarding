@@ -26,6 +26,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# vercel cli
+.vercel/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
@@ -33,3 +36,5 @@ next-env.d.ts
 # local sqlite store
 /data/*.sqlite
 /data/*.sqlite-*
+.vercel
+.env*

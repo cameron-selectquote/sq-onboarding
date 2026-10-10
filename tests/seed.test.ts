@@ -12,6 +12,17 @@ describe("seed data", () => {
     expect(await repo.budgets.list()).toHaveLength(seedData.budgets.length);
   });
 
+  it("is idempotent — re-running does not throw or duplicate rows", async () => {
+    const repo = createMemoryRepository();
+    await loadSeed(repo);
+    // Second run must be a no-op, not a duplicate-id error.
+    await expect(loadSeed(repo)).resolves.toBeUndefined();
+
+    expect(await repo.hires.list()).toHaveLength(seedData.hires.length);
+    expect(await repo.appCatalog.list()).toHaveLength(seedData.appCatalog.length);
+    expect(await repo.licenses.list()).toHaveLength(seedData.licenses.length);
+  });
+
   it("every template task points at a real template", async () => {
     const templateIds = new Set(seedData.templates.map((t) => t.id));
     for (const tt of seedData.templateTasks) {
@@ -62,7 +73,8 @@ describe("seed data", () => {
       offboardingHireIds,
     });
 
-    expect(report.reclaimableTotal).toBeGreaterThan(0);
+    expect(report.recurringMonthly).toBeGreaterThan(0);
+    expect(report.oneTimeAssetResidual).toBeGreaterThan(0);
     expect(report.licenseFlags.length).toBeGreaterThan(0);
     expect(report.assetFlags.length).toBeGreaterThan(0);
   });

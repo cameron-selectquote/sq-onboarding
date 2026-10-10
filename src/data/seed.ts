@@ -10,7 +10,7 @@
  * and tests.
  */
 
-import type {Repository} from '@/lib/repository';
+import type {Collection, Repository} from '@/lib/repository';
 import type {
   AppCatalogItem,
   Asset,
@@ -611,20 +611,38 @@ seedData.tasks = seedTasks(
   seedData.templateTasks,
 );
 
-/** Insert the seed dataset into a repository. Idempotent on a fresh repo. */
+/**
+ * Insert a record only if its id isn't already present. Makes loading
+ * idempotent: re-running skips existing rows instead of throwing on a duplicate
+ * id, so loadSeed is safe to call more than once (and resilient to a prior
+ * partial load).
+ */
+async function insertIfAbsent<T extends { id: string }>(
+  collection: Collection<T>,
+  record: T,
+): Promise<void> {
+  const existing = await collection.get(record.id);
+  if (!existing) await collection.insert(record);
+}
+
+/**
+ * Insert the seed dataset into a repository. Idempotent: running it again on an
+ * already-seeded (or partially-seeded) repo is a no-op for rows that exist, so
+ * it never throws on duplicate ids.
+ */
 export async function loadSeed(
   repo: Repository,
   data: SeedData = seedData,
 ): Promise<void> {
-  for (const c of data.companies) await repo.companies.insert(c);
-  for (const u of data.users) await repo.users.insert(u);
-  for (const a of data.appCatalog) await repo.appCatalog.insert(a);
-  for (const a of data.assetCatalog) await repo.assetCatalog.insert(a);
-  for (const a of data.assets) await repo.assets.insert(a);
-  for (const t of data.templates) await repo.templates.insert(t);
-  for (const t of data.templateTasks) await repo.templateTasks.insert(t);
-  for (const h of data.hires) await repo.hires.insert(h);
-  for (const t of data.tasks) await repo.tasks.insert(t);
-  for (const l of data.licenses) await repo.licenses.insert(l);
-  for (const b of data.budgets) await repo.budgets.insert(b);
+  for (const c of data.companies) await insertIfAbsent(repo.companies, c);
+  for (const u of data.users) await insertIfAbsent(repo.users, u);
+  for (const a of data.appCatalog) await insertIfAbsent(repo.appCatalog, a);
+  for (const a of data.assetCatalog) await insertIfAbsent(repo.assetCatalog, a);
+  for (const a of data.assets) await insertIfAbsent(repo.assets, a);
+  for (const t of data.templates) await insertIfAbsent(repo.templates, t);
+  for (const t of data.templateTasks) await insertIfAbsent(repo.templateTasks, t);
+  for (const h of data.hires) await insertIfAbsent(repo.hires, h);
+  for (const t of data.tasks) await insertIfAbsent(repo.tasks, t);
+  for (const l of data.licenses) await insertIfAbsent(repo.licenses, l);
+  for (const b of data.budgets) await insertIfAbsent(repo.budgets, b);
 }

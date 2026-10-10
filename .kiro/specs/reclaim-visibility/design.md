@@ -3,6 +3,25 @@
 > Thin route over the existing pure `reclaim.ts` rules, plus a seed scenario
 > that starts with recoverable spend. No new types, no contract change.
 
+> **Update (post-merge, finance consolidation):** `buildReclaimReport` is now
+> the **single reclaim engine** for the whole app. The finance dashboard's
+> reclaim queue (`getReclaimQueue` in `src/server/queries.ts`) was a second,
+> parallel calculation; it is now a thin *presenter* that groups this report's
+> `licenseFlags`, so the Finance overview tile, the reclaim page, and
+> `GET /api/reclaim` all trace to one computation and report the same number.
+>
+> Two behavior changes from the original spec below:
+> 1. The report now also flags licenses already in **status** `idle`/`reclaim`
+>    (via `flagByStatus`), unioned with the rule-based `flagLicenses` and deduped
+>    by license id (rule reason wins). `ReclaimReason` gained `"reclaim"`.
+> 2. The single `reclaimableTotal` is **split into two unit-separated fields** —
+>    `recurringMonthly` ($/mo, licenses) and `oneTimeAssetResidual` (one-off $,
+>    assets) — because summing a monthly figure with a one-time residual is not
+>    a meaningful number. Consumers must read the field they mean.
+>
+> AC references to `reclaimableTotal` now map to `recurringMonthly` (e.g. AC 6:
+> revoking a flagged seat lowers `recurringMonthly`).
+
 ## Approach
 
 The logic already exists and is tested: `flagLicenses` / `flagAssets` in
@@ -59,7 +78,8 @@ spend event. Positive/negative conventions are unaffected.
 export interface ReclaimReport {
   licenseFlags: LicenseReclaimFlag[];
   assetFlags: AssetReclaimFlag[];
-  reclaimableTotal: number; // monthly-normalized dollars, >= 0
+  recurringMonthly: number;      // $/mo from flagged license seats, >= 0
+  oneTimeAssetResidual: number;  // one-off $ from pending-return assets, >= 0
 }
 
 export function buildReclaimReport(input: {
@@ -74,11 +94,12 @@ export function buildReclaimReport(input: {
 ```
 
 `GET /api/reclaim` →
-`{ licenseFlags: [...], assetFlags: [...], reclaimableTotal: number }`
+`{ licenseFlags: [...], assetFlags: [...], recurringMonthly: number, oneTimeAssetResidual: number }`
 
-The total: recurring monthly cost of each flagged-license's app (deduped by
-license id so a license flagged for two reasons isn't double-counted) plus the
-residual value of each pending-return asset.
+`recurringMonthly`: monthly cost of each flagged-license's app (deduped by
+license id so a license flagged for two reasons isn't double-counted).
+`oneTimeAssetResidual`: residual value of each pending-return asset. The two are
+reported separately and never summed — different units.
 
 ## Testing strategy
 
