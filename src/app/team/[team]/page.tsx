@@ -78,7 +78,7 @@ export default async function TeamQueue({
             />
           </div>
           <section className="panel" style={{ gap: 0, padding: "6px 20px 10px" }}>
-            {tasks.length === 0 && <span className="empty">Queue's clear.</span>}
+            {tasks.length === 0 && <span className="empty">Queue&apos;s clear.</span>}
             <div className="rows">
               {tasks.map((t) => {
                 const hire = hireById.get(t.hireId);

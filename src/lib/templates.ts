@@ -17,7 +17,7 @@ import {
   type IdGenerator,
 } from "./ids";
 import type { Repository } from "./repository";
-import type { Hire, License, Task, Template, TemplateTask } from "./types";
+import type { License, Task } from "./types";
 
 export interface TemplateServiceOptions {
   idGenerator?: IdGenerator;
