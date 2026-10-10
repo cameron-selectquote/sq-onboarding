@@ -1,6 +1,6 @@
 import { getServices } from "@/server/store";
 import { getFinanceSummary, getReclaimQueue } from "@/server/queries";
-import { avgCostPerSpendingHire, budgetBurnDown, monthlySpend, monthOverMonth, recurringAddedSince } from "@/lib/finance";
+import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, recurringAddedSince } from "@/lib/finance";
 import { Kpi, Meter, PageHead, Shell } from "../_components/Shell";
 import { money, teamLabel, timeAgo } from "../_components/format";
 import { FINANCE_NAV } from "./nav";
@@ -31,10 +31,13 @@ export default async function FinanceOverview() {
   const recent = [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
   const period = budgets[0]?.period ?? "";
 
-  // Month-over-month spend trend.
-  const spendSeries = monthlySpend(entries);
-  const mom = monthOverMonth(spendSeries);
-  const maxMonth = Math.max(1, ...spendSeries.map((m) => m.total));
+  // Recurring burn trend ("costs growing over time") + period-over-period deltas.
+  const burnSeries = cumulativeRecurringBurn(entries);
+  const mom = burnDelta(burnSeries, 1);
+  const yoy = burnDelta(burnSeries, 12);
+  const maxBurn = Math.max(1, ...burnSeries.map((p) => p.burn));
+  const fmtDelta = (d: { absolute: number; pct: number }) =>
+    `${d.absolute >= 0 ? "+" : "−"}${money(Math.abs(Math.round(d.absolute)))} (${d.pct >= 0 ? "+" : "−"}${Math.abs(Math.round(d.pct * 100))}%)`;
   const monthLabel = (key: string) =>
     new Date(`${key}-01T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
 
@@ -46,16 +49,18 @@ export default async function FinanceOverview() {
           label="Recurring burn"
           value={money(Math.round(summary.recurringMonthlyBurn))}
           unit="/mo"
-          sub={burnToday === 0 ? "no change today" : `${burnToday > 0 ? "+" : ""}${money(burnToday)} today`}
+          sub={
+            mom.comparable
+              ? `${fmtDelta(mom)} MoM`
+              : burnToday === 0
+                ? "no change today"
+                : `${burnToday > 0 ? "+" : ""}${money(burnToday)} today`
+          }
         />
         <Kpi
           label="Total spend"
           value={money(Math.round(summary.totalSpend))}
-          sub={
-            spendSeries.length >= 2
-              ? `${mom.absolute >= 0 ? "+" : "−"}${money(Math.abs(Math.round(mom.absolute)))} MoM (${mom.pct >= 0 ? "+" : "−"}${Math.abs(Math.round(mom.pct * 100))}%)`
-              : `${spendingHires.length} hires with spend`
-          }
+          sub={`${spendingHires.length} hires with spend`}
         />
         <Kpi label="Avg cost per hire" value={money(Math.round(avgPerHire))} sub="seats + hardware + fees" />
         <Kpi
@@ -114,23 +119,29 @@ export default async function FinanceOverview() {
       </div>
       <section className="panel">
         <div className="panel-head" style={{ paddingBottom: 6 }}>
-          <span className="panel-title">Spend trend (month over month)</span>
-          {spendSeries.length >= 2 && (
-            <span className={mom.absolute >= 0 ? "tag" : "tag tag-accent-2"}>
-              {mom.absolute >= 0 ? "+" : "−"}{money(Math.abs(Math.round(mom.absolute)))} vs last month
-            </span>
-          )}
+          <span className="panel-title">Recurring burn trend</span>
+          <span style={{ display: "flex", gap: 6 }}>
+            {mom.comparable && (
+              <span className={mom.absolute >= 0 ? "tag" : "tag tag-accent-2"}>
+                {fmtDelta(mom)} MoM
+              </span>
+            )}
+            {yoy.comparable && (
+              <span className={yoy.absolute >= 0 ? "tag" : "tag tag-accent-2"}>
+                {fmtDelta(yoy)} YoY
+              </span>
+            )}
+          </span>
         </div>
-        {spendSeries.length === 0 && (
-          <span className="empty">No spend history yet. Entries appear here as the ledger fills.</span>
+        {burnSeries.length === 0 && (
+          <span className="empty">No recurring spend yet. Grant a seat to start the burn.</span>
         )}
-        {spendSeries.map((m) => (
+        {burnSeries.map((p) => (
           <Meter
-            key={m.month}
-            label={monthLabel(m.month)}
-            value={money(Math.round(m.total))}
-            pct={(m.total / maxMonth) * 100}
-            note={m.oneTime > 0 ? `${money(Math.round(m.recurring))} recurring · ${money(Math.round(m.oneTime))} one-time` : undefined}
+            key={p.month}
+            label={monthLabel(p.month)}
+            value={`${money(Math.round(p.burn))}/mo`}
+            pct={(p.burn / maxBurn) * 100}
           />
         ))}
       </section>

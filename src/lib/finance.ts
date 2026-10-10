@@ -208,17 +208,116 @@ export function monthlySpend(entries: LedgerEntry[]): MonthlySpend[] {
   return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
 }
 
+export interface BurnPoint {
+  /** Calendar month key, "YYYY-MM" (UTC). */
+  month: string;
+  /** Recurring burn rate ($/mo) in effect at the end of this month. */
+  burn: number;
+}
+
 /**
- * Month-over-month change in total spend between the last two months in a
- * `monthlySpend` series: `{ absolute, pct }`. Returns zeros when there aren't
- * two months to compare. `pct` is a ratio (0.25 = +25%); 0 prior month yields 0.
+ * Cumulative recurring burn rate month by month, oldest first. Recurring ledger
+ * entries are deltas to the ongoing monthly cost (a grant adds, a revoke/credit
+ * subtracts), so the running sum through each month is the burn rate as of that
+ * month's end. This is the "costs growing over time" line — it climbs as seats
+ * accrue and dips on reclaim, never spiking the way one-time POs do.
+ *
+ * Only months with recurring activity appear; each carries the running total,
+ * so the series is monotonic in time between dips.
  */
-export function monthOverMonth(series: MonthlySpend[]): { absolute: number; pct: number } {
-  if (series.length < 2) return { absolute: 0, pct: 0 };
-  const prev = series[series.length - 2]!.total;
-  const curr = series[series.length - 1]!.total;
-  const absolute = curr - prev;
-  return { absolute, pct: prev === 0 ? 0 : absolute / prev };
+export function cumulativeRecurringBurn(entries: LedgerEntry[]): BurnPoint[] {
+  const deltaByMonth = new Map<string, number>();
+  for (const e of entries) {
+    if (e.costType !== "recurring") continue;
+    const month = e.createdAt.slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) continue;
+    deltaByMonth.set(month, (deltaByMonth.get(month) ?? 0) + e.amount);
+  }
+  const months = [...deltaByMonth.keys()].sort((a, b) => a.localeCompare(b));
+  let running = 0;
+  return months.map((month) => {
+    running += deltaByMonth.get(month)!;
+    return { month, burn: running };
+  });
+}
+
+/**
+ * Period-over-period delta over a cumulative burn series. `lagMonths` is how far
+ * back to compare: 1 for month-over-month, 12 for year-over-year (matched by
+ * month key, robust to gaps). `comparable` is false with no matching prior point.
+ */
+export function burnDelta(series: BurnPoint[], lagMonths: 1 | 12): TrendDelta {
+  if (series.length === 0) return delta(0, 0, false);
+  const burnByMonth = new Map(series.map((p) => [p.month, p.burn]));
+  const latest = series[series.length - 1]!;
+  const current = latest.burn;
+
+  if (lagMonths === 1) {
+    if (series.length < 2) return delta(current, 0, false);
+    return delta(current, series[series.length - 2]!.burn, true);
+  }
+  // 12-month lag by month key.
+  const [y, mo] = latest.month.split("-").map(Number) as [number, number];
+  const priorKey = `${y - 1}-${String(mo).padStart(2, "0")}`;
+  if (!burnByMonth.has(priorKey)) return delta(current, 0, false);
+  return delta(current, burnByMonth.get(priorKey)!, true);
+}
+
+export interface TrendDelta {
+  /** Spend in the most recent month. */
+  current: number;
+  /** Spend in the comparison month (prior month for MoM, year-ago for YoY). */
+  comparison: number;
+  /** current − comparison. */
+  absolute: number;
+  /** Ratio change (0.25 = +25%). 0 when the comparison month is 0. */
+  pct: number;
+  /** False when there's no comparison month to measure against. */
+  comparable: boolean;
+}
+
+function delta(current: number, comparison: number, comparable: boolean): TrendDelta {
+  const absolute = current - comparison;
+  return {
+    current,
+    comparison,
+    absolute,
+    pct: comparison === 0 ? 0 : absolute / comparison,
+    comparable,
+  };
+}
+
+/**
+ * Month-over-month change in total spend: the last month vs the month before it
+ * in a `monthlySpend` series. `comparable` is false with fewer than two months.
+ */
+export function monthOverMonth(series: MonthlySpend[]): TrendDelta {
+  if (series.length === 0) return delta(0, 0, false);
+  if (series.length < 2) return delta(series[series.length - 1]!.total, 0, false);
+  return delta(
+    series[series.length - 1]!.total,
+    series[series.length - 2]!.total,
+    true,
+  );
+}
+
+/**
+ * Year-over-year change in total spend: the latest month vs the same calendar
+ * month 12 months earlier, matched by month key (robust to gaps in the series).
+ * `comparable` is false when that prior-year month has no data to compare to.
+ */
+export function yearOverYear(series: MonthlySpend[]): TrendDelta {
+  if (series.length === 0) return delta(0, 0, false);
+  const totalByMonth = new Map(series.map((m) => [m.month, m.total]));
+  const latest = series[series.length - 1]!;
+  const current = latest.total;
+
+  // Compute the "YYYY-MM" key 12 months before the latest month.
+  const [y, mo] = latest.month.split("-").map(Number) as [number, number];
+  const priorKey = `${y - 1}-${String(mo).padStart(2, "0")}`;
+
+  if (!totalByMonth.has(priorKey)) return delta(current, 0, false);
+  return delta(current, totalByMonth.get(priorKey)!, true);
 }
 
 export interface FinanceSummary {

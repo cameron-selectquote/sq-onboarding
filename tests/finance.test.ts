@@ -2,13 +2,16 @@ import {
   assetsOnHand,
   avgCostPerSpendingHire,
   budgetBurnDown,
+  burnDelta,
   costPerHire,
+  cumulativeRecurringBurn,
   financeSummary,
   isOverspent,
   monthlyCost,
   monthlySpend,
   monthOverMonth,
   projectedRunRate,
+  yearOverYear,
   recurringAddedSince,
   recurringMonthlyBurn,
   reclaimable,
@@ -181,19 +184,105 @@ describe("monthlySpend", () => {
 });
 
 describe("monthOverMonth", () => {
-  it("computes absolute and percentage change between the last two months", () => {
+  it("computes change between the last two months", () => {
     const series = [
       { month: "2026-05", total: 100, recurring: 100, oneTime: 0 },
       { month: "2026-06", total: 125, recurring: 125, oneTime: 0 },
     ];
     const mom = monthOverMonth(series);
+    expect(mom.current).toBe(125);
+    expect(mom.comparison).toBe(100);
     expect(mom.absolute).toBe(25);
     expect(mom.pct).toBeCloseTo(0.25);
+    expect(mom.comparable).toBe(true);
   });
 
-  it("returns zeros when there's fewer than two months", () => {
-    expect(monthOverMonth([])).toEqual({ absolute: 0, pct: 0 });
-    expect(monthOverMonth([{ month: "2026-06", total: 50, recurring: 50, oneTime: 0 }])).toEqual({ absolute: 0, pct: 0 });
+  it("is not comparable with fewer than two months", () => {
+    expect(monthOverMonth([]).comparable).toBe(false);
+    expect(monthOverMonth([{ month: "2026-06", total: 50, recurring: 50, oneTime: 0 }]).comparable).toBe(false);
+  });
+});
+
+describe("yearOverYear", () => {
+  it("compares the latest month to the same calendar month a year earlier", () => {
+    const series = [
+      { month: "2025-10", total: 100, recurring: 100, oneTime: 0 }, // year-ago anchor
+      { month: "2026-03", total: 50, recurring: 50, oneTime: 0 },   // noise in between
+      { month: "2026-10", total: 160, recurring: 160, oneTime: 0 }, // latest
+    ];
+    const yoy = yearOverYear(series);
+    expect(yoy.current).toBe(160);
+    expect(yoy.comparison).toBe(100);
+    expect(yoy.absolute).toBe(60);
+    expect(yoy.pct).toBeCloseTo(0.6);
+    expect(yoy.comparable).toBe(true);
+  });
+
+  it("is not comparable when the prior-year month is absent", () => {
+    const series = [
+      { month: "2026-06", total: 80, recurring: 80, oneTime: 0 },
+      { month: "2026-10", total: 160, recurring: 160, oneTime: 0 },
+    ];
+    const yoy = yearOverYear(series);
+    expect(yoy.comparable).toBe(false);
+    expect(yoy.current).toBe(160);
+  });
+
+  it("handles an empty series", () => {
+    expect(yearOverYear([]).comparable).toBe(false);
+  });
+});
+
+describe("cumulativeRecurringBurn", () => {
+  const mk = (id: string, amount: number, costType: "recurring" | "one_time", createdAt: string): LedgerEntry =>
+    ({ id, hireId: "h1", type: "fee", label: id, amount, costType, refTable: null, refId: null, createdAt });
+
+  it("runs recurring deltas into a monotonic monthly burn rate", () => {
+    const series = cumulativeRecurringBurn([
+      mk("a", 21, "recurring", "2026-05-10T00:00:00.000Z"),
+      mk("b", 2400, "one_time", "2026-05-20T00:00:00.000Z"), // ignored (one-time)
+      mk("c", 8, "recurring", "2026-06-05T00:00:00.000Z"),
+      mk("d", 15, "recurring", "2026-07-01T00:00:00.000Z"),
+    ]);
+    expect(series.map((p) => [p.month, p.burn])).toEqual([
+      ["2026-05", 21],
+      ["2026-06", 29], // 21 + 8
+      ["2026-07", 44], // + 15
+    ]);
+  });
+
+  it("dips when a recurring credit (revoke) lands", () => {
+    const series = cumulativeRecurringBurn([
+      mk("a", 21, "recurring", "2026-05-10T00:00:00.000Z"),
+      mk("b", -21, "recurring", "2026-06-10T00:00:00.000Z"), // revoke credit
+    ]);
+    expect(series.map((p) => p.burn)).toEqual([21, 0]);
+  });
+});
+
+describe("burnDelta", () => {
+  const pts = (xs: Array<[string, number]>) => xs.map(([month, burn]) => ({ month, burn }));
+
+  it("MoM (lag 1) compares the last two burn points", () => {
+    const d = burnDelta(pts([["2026-05", 29], ["2026-06", 44]]), 1);
+    expect(d.current).toBe(44);
+    expect(d.comparison).toBe(29);
+    expect(d.absolute).toBe(15);
+    expect(d.comparable).toBe(true);
+  });
+
+  it("YoY (lag 12) compares against the same month a year earlier", () => {
+    const d = burnDelta(pts([["2025-10", 20], ["2026-03", 50], ["2026-10", 90]]), 12);
+    expect(d.current).toBe(90);
+    expect(d.comparison).toBe(20);
+    expect(d.absolute).toBe(70);
+    expect(d.comparable).toBe(true);
+  });
+
+  it("is not comparable when the prior point is missing", () => {
+    expect(burnDelta(pts([["2026-10", 90]]), 1).comparable).toBe(false);
+    expect(burnDelta(pts([["2026-06", 40], ["2026-10", 90]]), 12).comparable).toBe(false);
+    expect(burnDelta([], 1).comparable).toBe(false);
   });
 });
 
