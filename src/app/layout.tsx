@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import "./organic.css";
+import "./app.css";
 
 export const metadata = {
   title: "Provision",
