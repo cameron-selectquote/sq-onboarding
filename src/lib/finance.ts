@@ -118,6 +118,19 @@ export function residualValue(
   return clamp(residual, 0, catalog.standardCost);
 }
 
+/**
+ * Projected annual run-rate = current recurring monthly burn × 12.
+ *
+ * Standard SaaS run-rate: annualize the present monthly recurring cost of all
+ * active seats. Forward-looking companion to `recurringMonthlyBurn`.
+ */
+export function projectedRunRate(
+  licenses: License[],
+  apps: AppCatalogItem[],
+): number {
+  return recurringMonthlyBurn(licenses, apps) * 12;
+}
+
 /** Budget burn-down ratio in [0, ∞). 0 limit yields 0 to avoid div-by-zero. */
 export function budgetBurnDown(budget: Budget): number {
   if (budget.limit <= 0) return 0;
@@ -136,6 +149,7 @@ export function assetsOnHand(assets: Asset[]): number {
 
 export interface FinanceSummary {
   recurringMonthlyBurn: number;
+  projectedAnnualRunRate: number;
   reclaimable: number;
   assetsOnHand: number;
   totalSpend: number;
@@ -153,6 +167,7 @@ export function financeSummary(input: {
 }): FinanceSummary {
   return {
     recurringMonthlyBurn: recurringMonthlyBurn(input.licenses, input.apps),
+    projectedAnnualRunRate: projectedRunRate(input.licenses, input.apps),
     reclaimable: reclaimable(
       input.licenses,
       input.apps,

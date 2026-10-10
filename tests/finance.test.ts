@@ -5,6 +5,7 @@ import {
   financeSummary,
   isOverspent,
   monthlyCost,
+  projectedRunRate,
   recurringMonthlyBurn,
   reclaimable,
   residualValue,
@@ -54,6 +55,22 @@ describe("recurringMonthlyBurn", () => {
     ];
     // 21 (github monthly) + 10 (zoom annual/12)
     expect(recurringMonthlyBurn(licenses, apps)).toBe(31);
+  });
+});
+
+describe("projectedRunRate", () => {
+  it("annualizes current monthly burn (× 12), active licenses only", () => {
+    const licenses: License[] = [
+      { id: "l1", hireId: "h1", appId: "github", status: "active", grantedAt: null, lastUsedAt: null },
+      { id: "l2", hireId: "h1", appId: "zoom", status: "active", grantedAt: null, lastUsedAt: null },
+      { id: "l3", hireId: "h2", appId: "github", status: "revoked", grantedAt: null, lastUsedAt: null },
+    ];
+    // monthly burn 31 (21 + 10) × 12
+    expect(projectedRunRate(licenses, apps)).toBe(372);
+  });
+
+  it("is zero with no active licenses", () => {
+    expect(projectedRunRate([], apps)).toBe(0);
   });
 });
 
@@ -123,6 +140,7 @@ describe("financeSummary", () => {
       budgets: [{ id: "b", team: "it", period: "p", limit: 10, spent: 50 }],
     });
     expect(summary.recurringMonthlyBurn).toBe(21);
+    expect(summary.projectedAnnualRunRate).toBe(252);
     expect(summary.assetsOnHand).toBe(1);
     expect(summary.totalSpend).toBe(21);
     expect(summary.overspentTeams).toEqual(["it"]);
