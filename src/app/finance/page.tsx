@@ -1,6 +1,6 @@
 import { getServices } from "@/server/store";
 import { getFinanceSummary, getReclaimQueue } from "@/server/queries";
-import { budgetBurnDown, costPerHire } from "@/lib/finance";
+import { avgCostPerSpendingHire, budgetBurnDown, monthlySpend, monthOverMonth, recurringAddedSince } from "@/lib/finance";
 import { Kpi, Meter, PageHead, Shell } from "../_components/Shell";
 import { money, teamLabel, timeAgo } from "../_components/format";
 import { FINANCE_NAV } from "./nav";
@@ -20,18 +20,23 @@ export default async function FinanceOverview() {
   ]);
   const hireById = new Map(hires.map((h) => [h.id, h]));
 
-  const today = new Date().toISOString().slice(0, 10);
-  const burnToday = entries
-    .filter((e) => e.costType === "recurring" && e.createdAt.startsWith(today))
-    .reduce((acc, e) => acc + e.amount, 0);
+  // Start of the local day — so "today" tracks the viewer's timezone, not UTC.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const burnToday = recurringAddedSince(entries, startOfToday);
 
   const spendingHires = hires.filter((h) => entries.some((e) => e.hireId === h.id));
-  const avgPerHire = spendingHires.length
-    ? spendingHires.reduce((acc, h) => acc + costPerHire(entries, h.id), 0) / spendingHires.length
-    : 0;
+  const avgPerHire = avgCostPerSpendingHire(entries, hires.map((h) => h.id));
 
   const recent = [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
   const period = budgets[0]?.period ?? "";
+
+  // Month-over-month spend trend.
+  const spendSeries = monthlySpend(entries);
+  const mom = monthOverMonth(spendSeries);
+  const maxMonth = Math.max(1, ...spendSeries.map((m) => m.total));
+  const monthLabel = (key: string) =>
+    new Date(`${key}-01T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
 
   return (
     <Shell nav={FINANCE_NAV} active="/finance" who="Finance">
@@ -43,7 +48,15 @@ export default async function FinanceOverview() {
           unit="/mo"
           sub={burnToday === 0 ? "no change today" : `${burnToday > 0 ? "+" : ""}${money(burnToday)} today`}
         />
-        <Kpi label="Total spend" value={money(Math.round(summary.totalSpend))} sub={`${spendingHires.length} hires with spend`} />
+        <Kpi
+          label="Total spend"
+          value={money(Math.round(summary.totalSpend))}
+          sub={
+            spendSeries.length >= 2
+              ? `${mom.absolute >= 0 ? "+" : "−"}${money(Math.abs(Math.round(mom.absolute)))} MoM (${mom.pct >= 0 ? "+" : "−"}${Math.abs(Math.round(mom.pct * 100))}%)`
+              : `${spendingHires.length} hires with spend`
+          }
+        />
         <Kpi label="Avg cost per hire" value={money(Math.round(avgPerHire))} sub="seats + hardware + fees" />
         <Kpi
           label="Reclaimable"
@@ -99,6 +112,28 @@ export default async function FinanceOverview() {
           </div>
         </section>
       </div>
+      <section className="panel">
+        <div className="panel-head" style={{ paddingBottom: 6 }}>
+          <span className="panel-title">Spend trend (month over month)</span>
+          {spendSeries.length >= 2 && (
+            <span className={mom.absolute >= 0 ? "tag" : "tag tag-accent-2"}>
+              {mom.absolute >= 0 ? "+" : "−"}{money(Math.abs(Math.round(mom.absolute)))} vs last month
+            </span>
+          )}
+        </div>
+        {spendSeries.length === 0 && (
+          <span className="empty">No spend history yet. Entries appear here as the ledger fills.</span>
+        )}
+        {spendSeries.map((m) => (
+          <Meter
+            key={m.month}
+            label={monthLabel(m.month)}
+            value={money(Math.round(m.total))}
+            pct={(m.total / maxMonth) * 100}
+            note={m.oneTime > 0 ? `${money(Math.round(m.recurring))} recurring · ${money(Math.round(m.oneTime))} one-time` : undefined}
+          />
+        ))}
+      </section>
     </Shell>
   );
 }

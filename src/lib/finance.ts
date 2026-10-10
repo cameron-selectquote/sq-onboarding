@@ -147,6 +147,80 @@ export function assetsOnHand(assets: Asset[]): number {
   return assets.filter((a) => a.status === "in_stock").length;
 }
 
+/**
+ * Sum of recurring ledger spend created at or after `since`. Used for the
+ * "+$X today" delta on the burn tile. Caller passes the boundary (e.g. start of
+ * the local day) so day-boundary semantics live with the caller's timezone, not
+ * a UTC string prefix.
+ */
+export function recurringAddedSince(entries: LedgerEntry[], since: Date): number {
+  const cutoff = since.getTime();
+  return sum(
+    entries
+      .filter((e) => e.costType === "recurring" && new Date(e.createdAt).getTime() >= cutoff)
+      .map((e) => e.amount),
+  );
+}
+
+/**
+ * Average ledger spend across hires that have any spend. Returns 0 when no hire
+ * has spend. This is the overall cost-per-hire KPI (not the by-role breakdown
+ * the reclaim page shows).
+ */
+export function avgCostPerSpendingHire(
+  entries: LedgerEntry[],
+  hireIds: string[],
+): number {
+  const spending = hireIds.filter((id) => entries.some((e) => e.hireId === id));
+  if (spending.length === 0) return 0;
+  return sum(spending.map((id) => costPerHire(entries, id))) / spending.length;
+}
+
+export interface MonthlySpend {
+  /** Calendar month key, "YYYY-MM" (UTC). */
+  month: string;
+  /** All ledger spend created in that month (recurring + one-time + fees). */
+  total: number;
+  /** The recurring portion only. */
+  recurring: number;
+  /** The one-time portion only (POs, fees). */
+  oneTime: number;
+}
+
+/**
+ * Ledger spend bucketed by calendar month (UTC), oldest first. Each bucket
+ * splits recurring vs one-time so the UI can chart either. Months with no
+ * activity are omitted. This is the data behind the month-over-month / burn
+ * trend view.
+ */
+export function monthlySpend(entries: LedgerEntry[]): MonthlySpend[] {
+  const byMonth = new Map<string, MonthlySpend>();
+  for (const e of entries) {
+    const month = e.createdAt.slice(0, 7); // "YYYY-MM" from ISO
+    if (!/^\d{4}-\d{2}$/.test(month)) continue; // skip malformed/empty dates
+    const bucket =
+      byMonth.get(month) ?? { month, total: 0, recurring: 0, oneTime: 0 };
+    bucket.total += e.amount;
+    if (e.costType === "recurring") bucket.recurring += e.amount;
+    else bucket.oneTime += e.amount;
+    byMonth.set(month, bucket);
+  }
+  return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
+}
+
+/**
+ * Month-over-month change in total spend between the last two months in a
+ * `monthlySpend` series: `{ absolute, pct }`. Returns zeros when there aren't
+ * two months to compare. `pct` is a ratio (0.25 = +25%); 0 prior month yields 0.
+ */
+export function monthOverMonth(series: MonthlySpend[]): { absolute: number; pct: number } {
+  if (series.length < 2) return { absolute: 0, pct: 0 };
+  const prev = series[series.length - 2]!.total;
+  const curr = series[series.length - 1]!.total;
+  const absolute = curr - prev;
+  return { absolute, pct: prev === 0 ? 0 : absolute / prev };
+}
+
 export interface FinanceSummary {
   recurringMonthlyBurn: number;
   projectedAnnualRunRate: number;
