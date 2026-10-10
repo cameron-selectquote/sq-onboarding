@@ -33,6 +33,3 @@ next-env.d.ts
 # local sqlite store
 /data/*.sqlite
 /data/*.sqlite-*
-
-# local backdated ledger history (demo trend data — not committed yet)
-/src/data/history.ts
