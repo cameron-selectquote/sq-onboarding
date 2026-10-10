@@ -31,6 +31,11 @@ export default function Home() {
           </Link>
         ))}
       </div>
+      <p className="card-body" style={{ marginTop: 24 }}>
+        Developer? Exercise every endpoint — including the AI template matcher
+        and welcome-brief drafter — from the{" "}
+        <Link href="/api-docs">interactive API docs</Link>.
+      </p>
     </main>
   );
 }
