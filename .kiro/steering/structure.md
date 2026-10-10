@@ -13,6 +13,7 @@ sq-onboarding/
 │   │   ├── ledger.ts          # LedgerService — single source of truth for spend
 │   │   ├── finance.ts         # pure derivations: burn, cost-per-hire, reclaimable
 │   │   ├── reclaim.ts         # pure reclaim rules (idle/duplicate/mismatch)
+│   │   ├── progress.ts        # hire progress, matrix cells, cost-free new-hire checklist
 │   │   ├── licenses.ts        # grant/revoke transitions (uses ledger)
 │   │   ├── assets.ts          # PO + return transitions (uses ledger)
 │   │   ├── templates.ts       # instantiate tasks+licenses for a hire
@@ -21,10 +22,19 @@ sq-onboarding/
 │   ├── data/
 │   │   └── seed.ts            # seed dataset + loadSeed(repo)
 │   ├── server/
-│   │   └── store.ts           # shared seeded repo + services for API routes
+│   │   ├── store.ts           # shared seeded repo + services for API routes
+│   │   └── queries.ts         # read models shared by routes + pages (finance, reclaim)
 │   └── app/
-│       ├── layout.tsx         # root layout
-│       ├── page.tsx           # placeholder landing (lists live endpoints)
+│       ├── layout.tsx         # root layout (loads organic.css + app.css)
+│       ├── organic.css        # Organic design system, vendored from claude.ai/design
+│       ├── app.css            # role-view page layout on top of the tokens
+│       ├── page.tsx           # role picker (no auth yet)
+│       ├── _components/       # Shell, KPI/meter/avatar, client actions, formatters
+│       ├── specialist/        # board (+ /hires matrix)
+│       ├── finance/           # overview (+ /reclaim)
+│       ├── team/[team]/       # it | vendor | facilities queue
+│       ├── manager/           # per-hire progress
+│       ├── myonboarding/      # new-hire checklist — NO costs (?hire=<id>)
 │       └── api/               # REST routes — THIN, delegate to lib services
 │           ├── hires/ ...     # import, list, detail
 │           ├── tasks/[id]/    # PATCH status
