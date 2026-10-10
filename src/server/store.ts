@@ -1,16 +1,21 @@
 /**
- * App-level repository singleton for the first-pass build.
+ * App-level repository singleton.
  *
- * All API routes share one seeded in-memory Repository. This is a deliberate
- * dev-only choice: the module instance persists across requests in a single
- * Next.js server process, giving the demo a consistent, mutable dataset without
- * a database.
+ * All API routes share one SqliteRepository backed by a local file, so the
+ * dataset persists across server restarts (and across requests within a single
+ * Next.js process). The seed runs once, only when the store is empty.
  *
- * When Supabase lands, replace the body of `getRepository()` with a real
- * Repository — route handlers won't change.
+ * The DB file lives at `data/provision.sqlite` under the project root by
+ * default; override with the PROVISION_DB_PATH env var (e.g. ":memory:" for an
+ * ephemeral store). Route handlers never see any of this — they depend only on
+ * the Repository interface, so swapping in Postgres/Supabase later means
+ * changing only this file.
  */
 
-import { createMemoryRepository } from "@/lib/memory-repository";
+import path from "node:path";
+import fs from "node:fs";
+
+import { createSqliteRepository, SqliteRepository } from "@/lib/sqlite-repository";
 import { LedgerService } from "@/lib/ledger";
 import { LicenseService } from "@/lib/licenses";
 import { AssetService } from "@/lib/assets";
@@ -29,34 +34,56 @@ interface Services {
   ai: AiClient;
 }
 
-// Stash on globalThis so Next.js hot-reload doesn't create duplicate stores.
+// Stash on globalThis so Next.js hot-reload doesn't create duplicate stores
+// (or multiple handles to the same SQLite file).
 const globalForStore = globalThis as unknown as {
   __provisionServices?: Services;
   __provisionSeeded?: Promise<void>;
 };
 
-function build(): Services {
-  const repo = createMemoryRepository();
+/** Resolve the SQLite file path, creating its parent directory if needed. */
+function resolveDbPath(): string {
+  const configured = process.env.PROVISION_DB_PATH;
+  if (configured === ":memory:") return configured;
+
+  const file = configured
+    ? path.resolve(configured)
+    : path.join(process.cwd(), "data", "provision.sqlite");
+
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  return file;
+}
+
+function build(): { services: Services; repo: SqliteRepository } {
+  const repo = createSqliteRepository(resolveDbPath());
   const ledger = new LedgerService(repo);
   return {
     repo,
-    ledger,
-    licenses: new LicenseService(repo, ledger),
-    assets: new AssetService(repo, ledger),
-    templates: new TemplateService(repo),
-    ai: new MockAiClient(),
+    services: {
+      repo,
+      ledger,
+      licenses: new LicenseService(repo, ledger),
+      assets: new AssetService(repo, ledger),
+      templates: new TemplateService(repo),
+      ai: new MockAiClient(),
+    },
   };
 }
 
 function services(): Services {
   if (!globalForStore.__provisionServices) {
-    globalForStore.__provisionServices = build();
-    globalForStore.__provisionSeeded = loadSeed(globalForStore.__provisionServices.repo);
+    const { services: svc, repo } = build();
+    globalForStore.__provisionServices = svc;
+    // Seed only on a fresh store; a populated file is left as-is so data
+    // survives restarts and re-seeding never collides on duplicate ids.
+    globalForStore.__provisionSeeded = repo.isEmpty()
+      ? loadSeed(svc.repo)
+      : Promise.resolve();
   }
   return globalForStore.__provisionServices;
 }
 
-/** Await before touching data in a route so the seed has finished loading. */
+/** Await before touching data in a route so any seed has finished loading. */
 export async function getServices(): Promise<Services> {
   const svc = services();
   await globalForStore.__provisionSeeded;

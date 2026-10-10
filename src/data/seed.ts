@@ -19,6 +19,8 @@ import type {
   Company,
   Hire,
   License,
+  Task,
+  TaskStatus,
   Template,
   TemplateTask,
   User,
@@ -41,12 +43,46 @@ export interface SeedData {
   templates: Template[];
   templateTasks: TemplateTask[];
   hires: Hire[];
+  tasks: Task[];
   licenses: License[];
   budgets: Budget[];
 }
 
-/** A recent timestamp so "actively used" seats never trip the idle rule. */
-const RECENTLY_USED = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+/** ISO timestamp `n` days before load, so idle/reclaim flags stay meaningful. */
+function daysAgo(n: number): string {
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * Per-hire task statuses, in template-task order. Gives the board, queues and
+ * manager view a realistic spread: one ready, one blocked, one untouched.
+ */
+const taskStatuses: Record<string, TaskStatus[]> = {
+  hire_1: ["done", "done", "done", "done", "in_progress"],
+  hire_2: ["done", "in_progress", "done", "todo", "todo"],
+  hire_3: ["done", "todo", "blocked", "done"],
+  hire_4: ["done", "done", "done"],
+  hire_5: ["todo", "todo", "todo", "todo", "todo"],
+};
+
+/** Instantiate each hire's template tasks (what POST /api/hires/import does). */
+function seedTasks(hires: Hire[], templates: Template[], templateTasks: TemplateTask[]): Task[] {
+  return hires.flatMap((hire) => {
+    const template = templates.find((t) => t.roleName === hire.roleName);
+    const statuses = taskStatuses[hire.id] ?? [];
+    return templateTasks
+      .filter((tt) => tt.templateId === template?.id)
+      .map((tt, i) => ({
+        id: `task_${hire.id}_${i + 1}`,
+        hireId: hire.id,
+        title: tt.title,
+        ownerTeam: tt.ownerTeam,
+        status: statuses[i] ?? "todo",
+        cost: tt.cost,
+        costType: tt.costType,
+      }));
+  });
+}
 
 export const seedData: SeedData = {
   companies: [
@@ -88,6 +124,8 @@ export const seedData: SeedData = {
     { id: "asset_mbp_2", catalogId: "mbp16", serialTag: "MBP-0002", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
     { id: "asset_mon_1", catalogId: "mon27", serialTag: "MON-0001", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
     { id: "asset_badge_1", catalogId: "badge", serialTag: "BDG-0001", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
+    { id: "asset_badge_2", catalogId: "badge", serialTag: "BDG-0002", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
+    { id: "asset_headset_1", catalogId: "headset", serialTag: "HST-0001", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
     // Assigned to the offboarding hire — flagged pending_return by reclaim.
     { id: "asset_mbp_3", catalogId: "mbp16", serialTag: "MBP-0003", status: "assigned", assignedToHireId: "hire_off", acquiredAt: "2025-06-01", returnedAt: null },
   ],
@@ -126,14 +164,23 @@ export const seedData: SeedData = {
     { id: "hire_off", name: "Quinn Baker", email: "quinn@acme.test", roleName: "Software Engineer", managerId: "u_mgr", startDate: "2025-06-01", cohort: OFFBOARDING_COHORT },
   ],
 
-  // Pre-granted licenses so the reclaim banner starts red:
-  //   - hire_1 has an idle GitHub seat (unused since early 2025)
-  //   - hire_2 holds GitHub + GitLab, a duplicate "dev"-category pair
-  //   - hire_off's seats sit under an offboarding hire
+  tasks: [], // filled from templates below
+
+  // Live burn plus something to reclaim: an idle seat, a seat marked for
+  // reclaim, a stale active seat, and a duplicate comms app. Revoked seats with
+  // no grantedAt are requested-but-not-granted — IT grants them from the queue.
   licenses: [
-    { id: "lic_idle_1", hireId: "hire_1", appId: "github", status: "active", grantedAt: "2025-01-10T00:00:00.000Z", lastUsedAt: "2025-02-01T00:00:00.000Z" },
-    { id: "lic_dup_1a", hireId: "hire_2", appId: "github", status: "active", grantedAt: "2026-02-02T00:00:00.000Z", lastUsedAt: RECENTLY_USED },
-    { id: "lic_dup_1b", hireId: "hire_2", appId: "gitlab", status: "active", grantedAt: "2026-02-02T00:00:00.000Z", lastUsedAt: RECENTLY_USED },
+    { id: "lic_1", hireId: "hire_1", appId: "github", status: "active", grantedAt: daysAgo(20), lastUsedAt: daysAgo(1) },
+    { id: "lic_2", hireId: "hire_1", appId: "slack", status: "active", grantedAt: daysAgo(20), lastUsedAt: daysAgo(1) },
+    { id: "lic_3", hireId: "hire_1", appId: "zoom", status: "active", grantedAt: daysAgo(20), lastUsedAt: daysAgo(3) },
+    { id: "lic_4", hireId: "hire_2", appId: "github", status: "active", grantedAt: daysAgo(20), lastUsedAt: daysAgo(2) },
+    { id: "lic_5", hireId: "hire_2", appId: "slack", status: "idle", grantedAt: daysAgo(60), lastUsedAt: daysAgo(45) },
+    { id: "lic_6", hireId: "hire_3", appId: "figma", status: "active", grantedAt: daysAgo(14), lastUsedAt: daysAgo(1) },
+    { id: "lic_7", hireId: "hire_3", appId: "slack", status: "reclaim", grantedAt: daysAgo(90), lastUsedAt: daysAgo(60) },
+    { id: "lic_8", hireId: "hire_4", appId: "notion", status: "active", grantedAt: daysAgo(70), lastUsedAt: daysAgo(40) },
+    { id: "lic_9", hireId: "hire_4", appId: "gsuite", status: "revoked", grantedAt: null, lastUsedAt: null },
+    { id: "lic_10", hireId: "hire_5", appId: "github", status: "revoked", grantedAt: null, lastUsedAt: null },
+    { id: "lic_11", hireId: "hire_5", appId: "slack", status: "revoked", grantedAt: null, lastUsedAt: null },
   ],
 
   budgets: [
@@ -145,6 +192,8 @@ export const seedData: SeedData = {
   ],
 };
 
+seedData.tasks = seedTasks(seedData.hires, seedData.templates, seedData.templateTasks);
+
 /** Insert the seed dataset into a repository. Idempotent on a fresh repo. */
 export async function loadSeed(repo: Repository, data: SeedData = seedData): Promise<void> {
   for (const c of data.companies) await repo.companies.insert(c);
@@ -155,6 +204,7 @@ export async function loadSeed(repo: Repository, data: SeedData = seedData): Pro
   for (const t of data.templates) await repo.templates.insert(t);
   for (const t of data.templateTasks) await repo.templateTasks.insert(t);
   for (const h of data.hires) await repo.hires.insert(h);
+  for (const t of data.tasks) await repo.tasks.insert(t);
   for (const l of data.licenses) await repo.licenses.insert(l);
   for (const b of data.budgets) await repo.budgets.insert(b);
 }

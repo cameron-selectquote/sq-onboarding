@@ -19,6 +19,19 @@ describe("seed data", () => {
     }
   });
 
+  it("every hire has its template's tasks, and tasks + licenses point at real records", async () => {
+    const hireIds = new Set(seedData.hires.map((h) => h.id));
+    const appIds = new Set(seedData.appCatalog.map((a) => a.id));
+    for (const hire of seedData.hires) {
+      expect(seedData.tasks.some((t) => t.hireId === hire.id)).toBe(true);
+    }
+    for (const t of seedData.tasks) expect(hireIds.has(t.hireId)).toBe(true);
+    for (const l of seedData.licenses) {
+      expect(hireIds.has(l.hireId)).toBe(true);
+      expect(appIds.has(l.appId)).toBe(true);
+    }
+  });
+
   it("every seed asset points at a real catalog item", async () => {
     const catalogIds = new Set(seedData.assetCatalog.map((c) => c.id));
     for (const a of seedData.assets) {
