@@ -1,0 +1,57 @@
+{
+  // Debug configs for Provision (Next.js 15 App Router + Jest).
+  // See https://nextjs.org/docs/app/building-your-application/configuring/debugging
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Debug server-side code: API route handlers, lib services, server.
+      // Breakpoints in src/app/api/**, src/lib/**, src/server/** hit here.
+      "name": "Next.js: debug server-side",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      // Debug client-side React in Chrome. Start the dev server first
+      // (either the server-side config above or `npm run dev` in a terminal).
+      "name": "Next.js: debug client-side (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
+      // Debug the Jest test file currently open in the editor.
+      "name": "Jest: debug current file",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/jest/bin/jest.js",
+      "args": ["--runInBand", "--watchAll=false", "${relativeFile}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      // Debug the whole Jest suite.
+      "name": "Jest: debug all tests",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/jest/bin/jest.js",
+      "args": ["--runInBand", "--watchAll=false"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ],
+  "compounds": [
+    {
+      // Run server + client together for full-stack breakpoint debugging.
+      "name": "Next.js: debug full stack",
+      "configurations": [
+        "Next.js: debug server-side",
+        "Next.js: debug client-side (Chrome)"
+      ]
+    }
+  ]
+}

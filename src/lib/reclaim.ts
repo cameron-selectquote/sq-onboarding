@@ -12,7 +12,8 @@
  * `asOf` you pass in (defaults to now, override in tests).
  */
 
-import type { AppCatalogItem, Asset, License } from "./types";
+import { monthlyCost, residualValue } from "./finance";
+import type { AppCatalogItem, AssetCatalogItem, Asset, License } from "./types";
 
 export type ReclaimReason =
   | "idle"
@@ -150,6 +151,70 @@ export function flagAssets(
       reason: "pending_return" as const,
       detail: "Assigned asset pending return on offboarding",
     }));
+}
+
+// ---- report ---------------------------------------------------------------
+
+export interface ReclaimReport {
+  licenseFlags: LicenseReclaimFlag[];
+  assetFlags: AssetReclaimFlag[];
+  /** Monthly-normalized recoverable dollars. Always >= 0. */
+  reclaimableTotal: number;
+}
+
+/**
+ * Run the reclaim rules and total the recoverable spend. This is what the
+ * `GET /api/reclaim` route returns, kept pure so the route stays thin.
+ *
+ * The total is:
+ *   - recurring monthly cost of each flagged license's app, counted once per
+ *     license even if a license trips more than one rule, plus
+ *   - residual (depreciated) value of each pending-return asset.
+ */
+export function buildReclaimReport(input: {
+  licenses: License[];
+  apps: AppCatalogItem[];
+  assets: Asset[];
+  assetCatalog: AssetCatalogItem[];
+  offboardingHireIds: ReadonlySet<string>;
+  asOf?: Date;
+  idleDays?: number;
+}): ReclaimReport {
+  const asOf = input.asOf ?? new Date();
+
+  const licenseFlags = flagLicenses(input.licenses, input.apps, {
+    asOf,
+    idleDays: input.idleDays,
+  });
+  const assetFlags = flagAssets(input.assets, input.offboardingHireIds);
+
+  const appById = new Map(input.apps.map((a) => [a.id, a]));
+  const licenseById = new Map(input.licenses.map((l) => [l.id, l]));
+  const assetCatalogById = new Map(input.assetCatalog.map((c) => [c.id, c]));
+  const assetById = new Map(input.assets.map((a) => [a.id, a]));
+
+  // Count each flagged license once, even if flagged for multiple reasons.
+  const flaggedLicenseIds = new Set(licenseFlags.map((f) => f.licenseId));
+  let licenseReclaim = 0;
+  for (const licenseId of flaggedLicenseIds) {
+    const license = licenseById.get(licenseId);
+    const app = license ? appById.get(license.appId) : undefined;
+    if (app) licenseReclaim += monthlyCost(app.costPerSeat, app.billing);
+  }
+
+  const flaggedAssetIds = new Set(assetFlags.map((f) => f.assetId));
+  let assetReclaim = 0;
+  for (const assetId of flaggedAssetIds) {
+    const asset = assetById.get(assetId);
+    const cat = asset ? assetCatalogById.get(asset.catalogId) : undefined;
+    if (asset && cat) assetReclaim += residualValue(cat, asset, asOf);
+  }
+
+  return {
+    licenseFlags,
+    assetFlags,
+    reclaimableTotal: licenseReclaim + assetReclaim,
+  };
 }
 
 // ---- helpers --------------------------------------------------------------

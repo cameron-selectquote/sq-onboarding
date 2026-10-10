@@ -18,10 +18,19 @@ import type {
   Budget,
   Company,
   Hire,
+  License,
   Template,
   TemplateTask,
   User,
 } from "@/lib/types";
+
+/**
+ * Cohort convention for a hire that's offboarding. The reclaim route treats
+ * hires with this cohort as "assets should come back" (see the reclaim-
+ * visibility spec). A stand-in for a real offboarding column — swap later
+ * without touching the type contract.
+ */
+export const OFFBOARDING_COHORT = "offboarding";
 
 export interface SeedData {
   companies: Company[];
@@ -32,8 +41,12 @@ export interface SeedData {
   templates: Template[];
   templateTasks: TemplateTask[];
   hires: Hire[];
+  licenses: License[];
   budgets: Budget[];
 }
+
+/** A recent timestamp so "actively used" seats never trip the idle rule. */
+const RECENTLY_USED = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
 
 export const seedData: SeedData = {
   companies: [
@@ -51,6 +64,7 @@ export const seedData: SeedData = {
 
   appCatalog: [
     { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly" },
+    { id: "gitlab", name: "GitLab", category: "dev", costPerSeat: 19, billing: "monthly" },
     { id: "slack", name: "Slack", category: "comms", costPerSeat: 8, billing: "monthly" },
     { id: "jira", name: "Jira", category: "pm", costPerSeat: 14, billing: "monthly" },
     { id: "figma", name: "Figma", category: "design", costPerSeat: 15, billing: "monthly" },
@@ -74,6 +88,8 @@ export const seedData: SeedData = {
     { id: "asset_mbp_2", catalogId: "mbp16", serialTag: "MBP-0002", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
     { id: "asset_mon_1", catalogId: "mon27", serialTag: "MON-0001", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
     { id: "asset_badge_1", catalogId: "badge", serialTag: "BDG-0001", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
+    // Assigned to the offboarding hire — flagged pending_return by reclaim.
+    { id: "asset_mbp_3", catalogId: "mbp16", serialTag: "MBP-0003", status: "assigned", assignedToHireId: "hire_off", acquiredAt: "2025-06-01", returnedAt: null },
   ],
 
   templates: [
@@ -106,6 +122,18 @@ export const seedData: SeedData = {
     { id: "hire_3", name: "Taylor Kim", email: "taylor@acme.test", roleName: "Designer", managerId: "u_mgr", startDate: "2026-02-09", cohort: "2026-Feb" },
     { id: "hire_4", name: "Casey Nguyen", email: "casey@acme.test", roleName: "Operations", managerId: "u_mgr", startDate: "2026-02-09", cohort: "2026-Feb" },
     { id: "hire_5", name: "Drew Alvarez", email: "drew@acme.test", roleName: "Software Engineer", managerId: "u_mgr", startDate: "2026-02-16", cohort: "2026-Feb" },
+    // Offboarding hire — their assigned asset is pending return (reclaim beat).
+    { id: "hire_off", name: "Quinn Baker", email: "quinn@acme.test", roleName: "Software Engineer", managerId: "u_mgr", startDate: "2025-06-01", cohort: OFFBOARDING_COHORT },
+  ],
+
+  // Pre-granted licenses so the reclaim banner starts red:
+  //   - hire_1 has an idle GitHub seat (unused since early 2025)
+  //   - hire_2 holds GitHub + GitLab, a duplicate "dev"-category pair
+  //   - hire_off's seats sit under an offboarding hire
+  licenses: [
+    { id: "lic_idle_1", hireId: "hire_1", appId: "github", status: "active", grantedAt: "2025-01-10T00:00:00.000Z", lastUsedAt: "2025-02-01T00:00:00.000Z" },
+    { id: "lic_dup_1a", hireId: "hire_2", appId: "github", status: "active", grantedAt: "2026-02-02T00:00:00.000Z", lastUsedAt: RECENTLY_USED },
+    { id: "lic_dup_1b", hireId: "hire_2", appId: "gitlab", status: "active", grantedAt: "2026-02-02T00:00:00.000Z", lastUsedAt: RECENTLY_USED },
   ],
 
   budgets: [
@@ -127,5 +155,6 @@ export async function loadSeed(repo: Repository, data: SeedData = seedData): Pro
   for (const t of data.templates) await repo.templates.insert(t);
   for (const t of data.templateTasks) await repo.templateTasks.insert(t);
   for (const h of data.hires) await repo.hires.insert(h);
+  for (const l of data.licenses) await repo.licenses.insert(l);
   for (const b of data.budgets) await repo.budgets.insert(b);
 }

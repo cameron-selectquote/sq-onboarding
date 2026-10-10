@@ -1,5 +1,10 @@
-import { flagAssets, flagLicenses } from "@/lib/reclaim";
-import type { AppCatalogItem, Asset, License } from "@/lib/types";
+import { buildReclaimReport, flagAssets, flagLicenses } from "@/lib/reclaim";
+import type {
+  AppCatalogItem,
+  Asset,
+  AssetCatalogItem,
+  License,
+} from "@/lib/types";
 
 const apps: AppCatalogItem[] = [
   { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly" },
@@ -82,5 +87,83 @@ describe("flagAssets", () => {
     expect(flags).toHaveLength(1);
     expect(flags[0]!.assetId).toBe("a1");
     expect(flags[0]!.reason).toBe("pending_return");
+  });
+});
+
+describe("buildReclaimReport", () => {
+  const assetCatalog: AssetCatalogItem[] = [
+    { id: "mbp", name: "MacBook Pro", category: "laptop", standardCost: 2800, depreciationMonths: 36 },
+  ];
+
+  it("flags idle + duplicate licenses and a pending-return asset, and totals them", () => {
+    const stale = "2026-01-01T00:00:00.000Z"; // ~60 days before asOf -> idle
+    const recent = "2026-02-28T00:00:00.000Z";
+    const licenses: License[] = [
+      // idle: GitHub, unused since Jan
+      { id: "l_idle", hireId: "h1", appId: "github", status: "active", grantedAt: null, lastUsedAt: stale },
+      // duplicate dev-category pair for h2: github + gitlab, both recent
+      { id: "l_dup_a", hireId: "h2", appId: "github", status: "active", grantedAt: null, lastUsedAt: recent },
+      { id: "l_dup_b", hireId: "h2", appId: "gitlab", status: "active", grantedAt: null, lastUsedAt: recent },
+    ];
+    const assets: Asset[] = [
+      { id: "a1", catalogId: "mbp", serialTag: "x", status: "assigned", assignedToHireId: "h1", acquiredAt: null, returnedAt: null },
+    ];
+
+    const report = buildReclaimReport({
+      licenses,
+      apps,
+      assets,
+      assetCatalog,
+      offboardingHireIds: new Set(["h1"]),
+      asOf,
+      idleDays: 30,
+    });
+
+    // one idle + one duplicate flag
+    expect(report.licenseFlags.map((f) => f.reason).sort()).toEqual(["duplicate", "idle"]);
+    expect(report.assetFlags).toHaveLength(1);
+    expect(report.assetFlags[0]!.reason).toBe("pending_return");
+
+    // total: github idle (21) + gitlab duplicate (19) + MBP residual (acquiredAt
+    // null -> full standardCost 2800) = 2840
+    expect(report.reclaimableTotal).toBe(21 + 19 + 2800);
+  });
+
+  it("counts a license flagged for multiple reasons only once", () => {
+    const stale = "2026-01-01T00:00:00.000Z";
+    const recent = "2026-02-28T00:00:00.000Z";
+    // h1 holds github (idle AND part of a dev duplicate pair) + gitlab (recent)
+    const licenses: License[] = [
+      { id: "l_both", hireId: "h1", appId: "github", status: "active", grantedAt: null, lastUsedAt: stale },
+      { id: "l_other", hireId: "h1", appId: "gitlab", status: "active", grantedAt: null, lastUsedAt: recent },
+    ];
+
+    const report = buildReclaimReport({
+      licenses,
+      apps,
+      assets: [],
+      assetCatalog,
+      offboardingHireIds: new Set(),
+      asOf,
+      idleDays: 30,
+    });
+
+    // github is flagged idle; gitlab is flagged duplicate (second in category).
+    // Each license counted once: 21 (github) + 19 (gitlab) = 40.
+    expect(report.reclaimableTotal).toBe(21 + 19);
+  });
+
+  it("returns empty lists and a zero total when nothing is reclaimable", () => {
+    const report = buildReclaimReport({
+      licenses: [],
+      apps,
+      assets: [],
+      assetCatalog,
+      offboardingHireIds: new Set(),
+      asOf,
+    });
+    expect(report.licenseFlags).toHaveLength(0);
+    expect(report.assetFlags).toHaveLength(0);
+    expect(report.reclaimableTotal).toBe(0);
   });
 });
