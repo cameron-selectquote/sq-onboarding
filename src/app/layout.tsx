@@ -1,7 +1,6 @@
-import type {ReactNode} from 'react';
-import './globals.css';
-import {Nav} from './_components/Nav';
-import {getPersona} from './_components/persona';
+import type { ReactNode } from "react";
+import "./organic.css";
+import "./app.css";
 
 export const metadata = {
   title: 'Provision',

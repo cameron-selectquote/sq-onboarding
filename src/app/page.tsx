@@ -1,51 +1,36 @@
-import Link from 'next/link';
-import {VIEW_LABELS, VIEW_PATHS, viewsFor} from '@/lib/access';
-import {getPersona} from './_components/persona';
+import Link from "next/link";
 
 /**
- * Landing page: links to the current persona's role views, plus the live API
- * endpoints the views build against.
+ * Role picker. There's no auth in the first pass (role-views spec, out of
+ * scope), so each role view is just a route; DevOps swaps this for Supabase
+ * auth later.
  */
-export default async function Home() {
-  const persona = await getPersona();
-  const endpoints = [
-    'POST /api/hires/import',
-    'GET  /api/hires',
-    'GET  /api/hires/:id',
-    'GET  /api/hires/:id/checklist',
-    'PATCH /api/tasks/:id',
-    'POST /api/licenses/:id/grant',
-    'POST /api/licenses/:id/revoke',
-    'POST /api/pos',
-    'GET  /api/assets',
-    'POST /api/assets/:id/return',
-    'GET  /api/catalog',
-    'GET  /api/finance/summary',
-    'POST /api/ai/match-template',
-  ];
+const ROLES = [
+  { href: "/specialist", kicker: "Specialist · HR", title: "Onboarding board", body: "Every hire's tasks by status, and who's ready or stuck." },
+  { href: "/finance", kicker: "Finance", title: "Spend + reclaim", body: "Live burn, budgets, the ledger, and seats to take back." },
+  { href: "/team/it", kicker: "Team · IT", title: "IT queue", body: "Seats to grant, accounts to create, inventory on hand." },
+  { href: "/team/vendor", kicker: "Team · Vendor", title: "Vendor queue", body: "Hardware to order. Raise POs against the budget." },
+  { href: "/team/facilities", kicker: "Team · Facilities", title: "Facilities queue", body: "Badges and desks for day one." },
+  { href: "/manager", kicker: "Manager", title: "My hires", body: "How far along each of your people is." },
+  { href: "/myonboarding?hire=hire_1", kicker: "New hire", title: "My onboarding", body: "Your checklist and your people. No costs." },
+];
+
+export default function Home() {
   return (
-    <>
-      <section className='panel'>
-        <h1>Provision</h1>
-        <p>Pick a role in the top bar. Your views:</p>
-        <ul>
-          {viewsFor(persona).map((v) => (
-            <li key={v}>
-              <Link href={VIEW_PATHS[v]}>{VIEW_LABELS[v]}</Link>
-            </li>
-          ))}
-        </ul>
-      </section>
-      <section className='panel'>
-        <h2>Live API endpoints</h2>
-        <ul>
-          {endpoints.map((e) => (
-            <li key={e}>
-              <code>{e}</code>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </>
+    <main className="main" style={{ maxWidth: 1100 }}>
+      <div className="head-text">
+        <span className="eyebrow">Provision · SelectQuote</span>
+        <h1 className="title">Who are you today?</h1>
+      </div>
+      <div className="roles">
+        {ROLES.map((r) => (
+          <Link key={r.href} href={r.href} className="card role-card">
+            <span className="card-kicker">{r.kicker}</span>
+            <span className="card-title">{r.title}</span>
+            <p className="card-body">{r.body}</p>
+          </Link>
+        ))}
+      </div>
+    </main>
   );
 }
