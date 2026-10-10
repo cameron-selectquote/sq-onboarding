@@ -10,13 +10,18 @@ ledger.
 > onboarding happens, not a quarter later.
 
 This repo is the **first-pass framework** for the team to build on. The domain
-core, API routes, seed data, and unit tests are in place; persistence is
-in-memory behind a swappable interface so nobody is blocked on infra.
+core, API routes, seed data, and unit tests are in place; persistence is a local
+SQLite file behind a swappable interface so nobody is blocked on infra.
 
 ## Prerequisites
 
 - **Node.js 20+** (built on Node 25)
 - **npm 10+**
+
+`npm install` pulls in `better-sqlite3`, a native module. It installs a prebuilt
+binary on common platforms (no action needed). On an unsupported platform it
+compiles from source, which needs standard C++ build tools (e.g. Xcode CLT on
+macOS, build-essential on Linux, or the VS Build Tools on Windows).
 
 ## Quick start
 
@@ -26,7 +31,32 @@ npm run dev        # start the dev server
 ```
 
 Open http://localhost:3000 — the landing page lists the live API endpoints.
-Data is seeded automatically in-memory on first request.
+
+## Persistent store (first run)
+
+Persistence is a local **SQLite** file. There's nothing to install or configure:
+
+- On first run the app creates `data/provision.sqlite` (and the `data/`
+  directory) automatically, then loads the seed dataset into it.
+- The file is **not** checked in (`.gitignore` excludes `data/*.sqlite*`), so a
+  fresh clone starts clean and seeds itself on first request.
+- The file persists across restarts — data you create in a session is still
+  there next time. Reseeding only happens when the store is empty, so a restart
+  never collides on duplicate records.
+
+To start over from a clean seed, delete the file and restart:
+
+```bash
+Remove-Item data/provision.sqlite*   # PowerShell
+# rm -f data/provision.sqlite*       # bash
+```
+
+The location is configurable via the `PROVISION_DB_PATH` env var. Set it to
+`:memory:` for an ephemeral store (handy for throwaway runs or tests):
+
+```bash
+$env:PROVISION_DB_PATH = ":memory:"; npm run dev   # PowerShell
+```
 
 ## Common commands
 
@@ -72,7 +102,8 @@ Available endpoints: `POST /api/hires/import`, `GET /api/hires`,
 src/lib/      domain core — pure, testable, no framework (types, ledger,
               finance, reclaim, licenses, assets, templates, ai, repository)
 src/data/     seed dataset + loader
-src/server/   shared seeded repository + services for API routes
+src/server/   shared SQLite-backed repository + services for API routes
+data/         local SQLite store (created on first run, gitignored)
 src/app/      Next.js App Router: pages + /api route handlers
 tests/        Jest unit tests, one file per lib module
 schema.sql    target Postgres DDL (the data-model contract)
@@ -99,7 +130,8 @@ BuildPlan.md  feature brief, timeline, cut lines
 
 ## Status
 
-First-pass build: domain core + 11 API routes + seed data + 43 passing unit
-tests. Persistence is in-memory; `schema.sql` is the Postgres target DevOps
-swaps in behind the `Repository` interface. AI is mocked behind an `AiClient`
-seam ready for the event's inference endpoint.
+First-pass build: domain core + 11 API routes + seed data + 57 passing unit
+tests. Persistence is a local SQLite file (`better-sqlite3`) behind the
+`Repository` interface; `schema.sql` is the Postgres target DevOps swaps in
+behind the same interface. AI is mocked behind an `AiClient` seam ready for the
+event's inference endpoint.

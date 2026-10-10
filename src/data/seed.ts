@@ -126,7 +126,8 @@ export const seedData: SeedData = {
     { id: "asset_badge_1", catalogId: "badge", serialTag: "BDG-0001", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
     { id: "asset_badge_2", catalogId: "badge", serialTag: "BDG-0002", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
     { id: "asset_headset_1", catalogId: "headset", serialTag: "HST-0001", status: "in_stock", assignedToHireId: null, acquiredAt: "2026-01-05", returnedAt: null },
-    { id: "asset_mbp_3", catalogId: "mbp16", serialTag: "MBP-0003", status: "assigned", assignedToHireId: "hire_1", acquiredAt: "2026-01-20", returnedAt: null },
+    // Assigned to the offboarding hire — flagged pending_return by reclaim.
+    { id: "asset_mbp_3", catalogId: "mbp16", serialTag: "MBP-0003", status: "assigned", assignedToHireId: "hire_off", acquiredAt: "2025-06-01", returnedAt: null },
   ],
 
   templates: [
@@ -161,16 +162,6 @@ export const seedData: SeedData = {
     { id: "hire_5", name: "Drew Alvarez", email: "drew@acme.test", roleName: "Software Engineer", managerId: "u_mgr", startDate: "2026-02-16", cohort: "2026-Feb" },
     // Offboarding hire — their assigned asset is pending return (reclaim beat).
     { id: "hire_off", name: "Quinn Baker", email: "quinn@acme.test", roleName: "Software Engineer", managerId: "u_mgr", startDate: "2025-06-01", cohort: OFFBOARDING_COHORT },
-  ],
-
-  // Pre-granted licenses so the reclaim banner starts red:
-  //   - hire_1 has an idle GitHub seat (unused since early 2025)
-  //   - hire_2 holds GitHub + GitLab, a duplicate "dev"-category pair
-  //   - hire_off's seats sit under an offboarding hire
-  licenses: [
-    { id: "lic_idle_1", hireId: "hire_1", appId: "github", status: "active", grantedAt: "2025-01-10T00:00:00.000Z", lastUsedAt: "2025-02-01T00:00:00.000Z" },
-    { id: "lic_dup_1a", hireId: "hire_2", appId: "github", status: "active", grantedAt: "2026-02-02T00:00:00.000Z", lastUsedAt: RECENTLY_USED },
-    { id: "lic_dup_1b", hireId: "hire_2", appId: "gitlab", status: "active", grantedAt: "2026-02-02T00:00:00.000Z", lastUsedAt: RECENTLY_USED },
   ],
 
   tasks: [], // filled from templates below
