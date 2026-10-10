@@ -1,25 +1,16 @@
-import type { ReactNode } from "react";
-import "./organic.css";
-import "./app.css";
+import type {ReactNode} from 'react';
+import './organic.css';
+import './app.css';
 
 export const metadata = {
   title: 'Provision',
   description: 'Onboarding + spend ledger — Hack Midwest 2026',
 };
 
-export default async function RootLayout({children}: {children: ReactNode}) {
-  const persona = await getPersona();
+export default function RootLayout({children}: {children: ReactNode}) {
   return (
     <html lang='en'>
-      <body>
-        <a className='skip-link' href='#main'>
-          Skip to content
-        </a>
-        <Nav persona={persona} />
-        <main id='main' className='container'>
-          {children}
-        </main>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
