@@ -304,21 +304,11 @@ export const seedData: SeedData = {
       acquiredAt: '2026-01-05',
       returnedAt: null,
     },
+    // Assigned to the offboarding hire — flagged pending_return by reclaim.
     {
       id: 'asset_mbp_3',
       catalogId: 'mbp16',
       serialTag: 'MBP-0003',
-      status: 'assigned',
-      assignedToHireId: 'hire_1',
-      acquiredAt: '2026-01-20',
-      returnedAt: null,
-    },
-    // Offboarding hire's laptop — still assigned, so it shows as pending
-    // return and drives the asset side of the reclaim banner.
-    {
-      id: 'asset_mbp_off',
-      catalogId: 'mbp16',
-      serialTag: 'MBP-0004',
       status: 'assigned',
       assignedToHireId: 'hire_off',
       acquiredAt: '2025-06-01',

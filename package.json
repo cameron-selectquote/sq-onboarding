@@ -14,12 +14,14 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "next": "15.5.27",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.0",
