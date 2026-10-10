@@ -8,6 +8,7 @@
 export * from "./types";
 export * from "./repository";
 export * from "./memory-repository";
+export * from "./sqlite-repository";
 export * from "./ids";
 export * from "./ledger";
 export * from "./finance";
