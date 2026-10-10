@@ -29,8 +29,6 @@ export default async function FinanceOverview() {
   const avgPerHire = avgCostPerSpendingHire(entries, hires.map((h) => h.id));
 
   const recent = [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
-  const period = budgets[0]?.period ?? "";
-
   // Recurring burn trend ("costs growing over time") + period-over-period deltas.
   const burnSeries = cumulativeRecurringBurn(entries);
   const mom = burnDelta(burnSeries, 1);
@@ -40,10 +38,22 @@ export default async function FinanceOverview() {
     `${d.absolute >= 0 ? "+" : "−"}${money(Math.abs(Math.round(d.absolute)))} (${d.pct >= 0 ? "+" : "−"}${Math.abs(Math.round(d.pct * 100))}%)`;
   const monthLabel = (key: string) =>
     new Date(`${key}-01T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  const monthYearLabel = (key: string) =>
+    new Date(`${key}-01T00:00:00Z`).toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+
+  // Eyebrow reflects the actual data range, not a hardcoded budget period, so
+  // the header can't claim a quarter the trend data spills outside of.
+  const first = burnSeries[0]?.month;
+  const last = burnSeries[burnSeries.length - 1]?.month;
+  const periodLabel = !first
+    ? (budgets[0]?.period ?? "onboarding")
+    : first === last
+      ? monthYearLabel(first)
+      : `${monthYearLabel(first)} – ${monthYearLabel(last!)}`;
 
   return (
     <Shell nav={FINANCE_NAV} active="/finance" who="Finance">
-      <PageHead eyebrow={`${period} · onboarding spend`} title="Where the money's going" />
+      <PageHead eyebrow={`${periodLabel} · onboarding spend`} title="Where the money's going" />
       <div className="kpis">
         <Kpi
           label="Recurring burn"
