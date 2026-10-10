@@ -50,12 +50,18 @@ jobs:
       vars.DEPLOY_FREEZE != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Secrets/vars below are scoped to the Production environment; the job
+    # can't read them without this. DEPLOY_FREEZE (in `if` above) is
+    # evaluated before the environment loads, so it must be a repo variable.
+    environment:
+      name: Production
+      url: ${{ vars.PROD_URL }}
     concurrency:
       group: deploy-prod
       cancel-in-progress: false
     env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       PROD_URL: ${{ vars.PROD_URL }}
     steps:
