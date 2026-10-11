@@ -16,6 +16,8 @@
  */
 
 import {Agent, configureLogging, tool} from '@strands-agents/sdk';
+import {InterruptResponseContent} from '@strands-agents/sdk';
+import type {Interrupt, Snapshot} from '@strands-agents/sdk';
 import {z} from 'zod';
 import {
   CHECKLIST_CATEGORY_LABEL,
@@ -38,12 +40,14 @@ import type {OffboardPreview, OffboardResult} from '@/lib/offboarding';
 import {monthlyCost} from '@/lib/finance';
 import {
   classifyConfirmation,
+  isApproved,
   parseCreateTemplateIntent,
   parseListCandidatesIntent,
   parseListTemplatesIntent,
   parseOffboardIntent,
   parseRemoveSeatIntent,
   parseViewIntent,
+  type HitlApproval,
 } from '@/lib/intent';
 import {
   getCompanyInfo,
@@ -325,25 +329,56 @@ async function buildTools(role: GenieRole, scope: GenieScopeInput) {
   const executeOffboarding = tool({
     name: 'executeOffboarding',
     description:
-      "DESTRUCTIVE. Revoke the hire's software seats and return their hardware (recovers spend; writes crediting ledger entries). NEVER call this until you have (1) called previewOffboarding, (2) shown the user exactly what will be reclaimed, and (3) received an explicit yes/confirm to proceed. You MUST pass confirmed=true, which you may only set after the user confirms. If you are not certain the user confirmed, call previewOffboarding instead and ask.",
+      "DESTRUCTIVE. Revoke the hire's software seats and return their hardware (recovers spend; writes crediting ledger entries). ALWAYS call previewOffboarding first and show the user what will be reclaimed. You do NOT need to collect a yes/no yourself — this tool pauses for an explicit human confirmation via the human-in-the-loop gate before doing anything, so just call it with the hireId once the user has asked to offboard that person. If the human declines, the tool reports it was cancelled and nothing changes.",
     inputSchema: z.object({
       hireId: z
         .string()
         .describe('The hire id to offboard (from previewOffboarding)'),
-      confirmed: z
-        .boolean()
-        .describe(
-          'Must be true, and only after the user explicitly confirmed the destructive action',
-        ),
     }),
-    callback: async ({hireId, confirmed}) => {
-      if (!confirmed) {
+    callback: async ({hireId}, context) => {
+      // Human-in-the-loop: pause the agent and require an explicit human
+      // approval before this destructive action runs. Strands' interrupt()
+      // throws on first execution (halting the turn with stopReason
+      // 'interrupt'); on resume it returns the human's response. Confirmation
+      // is therefore owned by trusted code + the human, never the model.
+      const preview = await offboarding.preview(hireId);
+      const approval = context?.interrupt<HitlApproval>({
+        name: `confirm_offboard_${hireId}`,
+        reason: {
+          kind: 'offboard',
+          hireId: preview.hireId,
+          hireName: preview.hireName,
+          seats: preview.seats.map((s) => ({
+            app: s.appName,
+            monthly: Math.round(s.monthly),
+          })),
+          assets: preview.assets.map((a) => ({
+            name: a.name,
+            serial: a.serialTag,
+            residual: Math.round(a.residual),
+          })),
+          monthlyRecovered: Math.round(preview.monthlyRecovered),
+          oneTimeRecovered: Math.round(preview.oneTimeRecovered),
+          prompt: `Offboard ${preview.hireName}? This revokes their seats and returns their hardware.`,
+        },
+      });
+
+      // No ToolContext (shouldn't happen on the live path) — refuse rather than
+      // run a destructive action unconfirmed.
+      if (!context) {
         return {
-          refused: true,
-          message:
-            'Not confirmed. Show the previewOffboarding result and ask the user to confirm before executing.',
+          cancelled: true,
+          message: 'Could not request confirmation; nothing was changed.',
         };
       }
+      if (!isApproved(approval)) {
+        return {
+          cancelled: true,
+          hireName: preview.hireName,
+          message: `Cancelled — ${preview.hireName} was not offboarded. Nothing changed.`,
+        };
+      }
+
       const r = await offboarding.execute(hireId);
       return {
         hireId: r.hireId,
@@ -733,11 +768,44 @@ export interface TemplateTableCard {
   }[];
 }
 
+/**
+ * A human-in-the-loop confirmation card. Rendered when the live agent pauses on
+ * a destructive action (via Strands `interrupt()`), showing what will happen
+ * and offering Confirm / Cancel. The client answers by sending the user's
+ * yes/no back on the next turn to resume the paused agent.
+ */
+export interface HitlCard {
+  type: 'hitl';
+  /** What kind of action is awaiting approval (today: offboard). */
+  kind: 'offboard';
+  prompt: string;
+  hireName: string;
+  seats: {label: string; monthly: number}[];
+  assets: {label: string; residual: number}[];
+  monthlyRecovered: number;
+  oneTimeRecovered: number;
+}
+
 export type GenieCard =
   | ReclaimCard
   | StatusCard
   | CandidateTableCard
-  | TemplateTableCard;
+  | TemplateTableCard
+  | HitlCard;
+
+/**
+ * An opaque, round-tripped agent session for resuming a paused (interrupted)
+ * live-agent turn. Carries the serialized Strands snapshot plus the pending
+ * interrupt id, and the role/scope needed to rebuild the same tool set on
+ * resume. The client holds it between turns and sends it back, exactly like
+ * `plan`/`offboard`/`templateDraft`. Only present on the live Bedrock path.
+ */
+export interface GenieSession {
+  snapshot: Snapshot;
+  interruptId: string;
+  role: GenieRole;
+  scope: GenieScopeInput;
+}
 
 /**
  * An in-progress new-template build, carried across turns. The Genie asks for
@@ -767,6 +835,12 @@ export interface GenieReply {
   offboard?: PendingOffboard | null;
   /** An in-progress new-template build, carried across turns. */
   templateDraft?: TemplateDraft | null;
+  /**
+   * A paused live-agent session awaiting a human-in-the-loop confirmation.
+   * Round-tripped so the next turn can resume the interrupted agent. Null
+   * unless the agent is currently paused on a destructive action.
+   */
+  genieSession?: GenieSession | null;
   /**
    * An optional structured card to render alongside the message (recovered
    * spend on offboard). Not round-tripped — it's render-only for this turn.
@@ -810,6 +884,12 @@ export interface GenieTurnInput {
   offboard?: PendingOffboard | null;
   /** An in-progress template build from the previous turn, if any. */
   templateDraft?: TemplateDraft | null;
+  /**
+   * A paused live-agent session from the previous turn, if the agent stopped
+   * on a human-in-the-loop interrupt. When present, this turn's message is the
+   * human's confirmation and resumes that agent. The client round-trips it.
+   */
+  genieSession?: GenieSession | null;
 }
 
 /** Resolve the effective role for a turn, defaulting to admin (full access). */
@@ -835,6 +915,13 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
   const scope = scopeOf(input);
   const may = (handler: GeniePreHandler) => allowsPreHandler(role, handler);
 
+  // RESUME: if the live agent paused last turn on a human-in-the-loop interrupt
+  // (a destructive action awaiting approval), this turn's message is the human's
+  // yes/no. Resume the interrupted agent with that answer before anything else.
+  if (input.genieSession && hasBedrockCreds()) {
+    return resumeInterruptedAgent(input, input.genieSession);
+  }
+
   // The deterministic pre-handlers below run trusted, mutating/cost-bearing
   // flows (template builder, offboard gate, candidate list, seat removal,
   // status lookup). Each is gated by the role's policy so a manager or employee
@@ -856,11 +943,13 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
     if (templates) return templates;
   }
 
-  // Destructive offboarding is gated deterministically server-side, on BOTH
-  // engines, so the confirmation never depends on the model threading a hire
-  // id correctly. If an offboard was previewed last turn, this turn's yes/no
-  // decides it here.
-  if (may('offboard')) {
+  // Destructive offboarding confirmation:
+  //  - LIVE (Bedrock) path: the agent's executeOffboarding tool raises a
+  //    Strands human-in-the-loop interrupt() for approval, so we let the agent
+  //    drive and do NOT short-circuit here.
+  //  - OFFLINE (scripted) path: no agent exists to interrupt, so the trusted
+  //    deterministic gate owns the yes/no confirmation instead.
+  if (may('offboard') && !hasBedrockCreds()) {
     const gated = await resolveOffboardConfirmation(input);
     if (gated) return gated;
   }
@@ -893,15 +982,7 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
       const agent = await buildGenieAgent(role, scope);
       const messages = toMessages(input.history ?? [], input.message);
       const result = await agent.invoke(messages);
-      return {
-        message: extractText(result.lastMessage),
-        engine: 'strands-bedrock',
-        // The live agent manages flow through its tools + conversation; just
-        // echo the plan/offboard state back so the client keeps it.
-        plan: input.plan ?? null,
-        offboard: input.offboard ?? null,
-        templateDraft: input.templateDraft ?? null,
-      };
+      return liveReplyFromResult(result, agent, role, scope, input);
     } catch (err) {
       // Fall through to scripted so a model/credential hiccup never dead-ends
       // the demo. Surface the reason once in the message.
@@ -922,6 +1003,119 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
     plan: r.plan,
     offboard: r.offboard ?? null,
     templateDraft: input.templateDraft ?? null,
+  };
+}
+
+/**
+ * Turn a live agent result into a GenieReply. If the agent paused on a
+ * human-in-the-loop interrupt (a destructive action awaiting approval), capture
+ * a session snapshot and surface a confirmation card instead of a final answer.
+ * Otherwise return the assistant text.
+ */
+function liveReplyFromResult(
+  result: {
+    stopReason?: string;
+    interrupts?: Interrupt[];
+    lastMessage?: unknown;
+  },
+  agent: Agent,
+  role: GenieRole,
+  scope: GenieScopeInput,
+  input: GenieTurnInput,
+): GenieReply {
+  if (result.stopReason === 'interrupt' && result.interrupts?.length) {
+    const pending = result.interrupts[0]!;
+    const snapshot = agent.takeSnapshot({preset: 'session'});
+    return {
+      message: hitlPromptText(pending),
+      engine: 'strands-bedrock',
+      plan: input.plan ?? null,
+      offboard: input.offboard ?? null,
+      templateDraft: input.templateDraft ?? null,
+      genieSession: {snapshot, interruptId: pending.id, role, scope},
+      card: hitlCardFrom(pending),
+    };
+  }
+  return {
+    message: extractText(result.lastMessage),
+    engine: 'strands-bedrock',
+    plan: input.plan ?? null,
+    offboard: input.offboard ?? null,
+    templateDraft: input.templateDraft ?? null,
+    genieSession: null,
+  };
+}
+
+/**
+ * Resume a live agent that paused on a human-in-the-loop interrupt last turn.
+ * Rebuilds the agent (same role/scope -> same tools), restores the snapshot,
+ * and answers the pending interrupt with the human's confirmation from this
+ * turn's message. The resumed run may finish, or pause again on a new
+ * interrupt — both handled by liveReplyFromResult.
+ */
+async function resumeInterruptedAgent(
+  input: GenieTurnInput,
+  session: GenieSession,
+): Promise<GenieReply> {
+  try {
+    const agent = await buildGenieAgent(session.role, session.scope);
+    agent.loadSnapshot(session.snapshot);
+    const result = await agent.invoke([
+      new InterruptResponseContent({
+        interruptId: session.interruptId,
+        // Pass the raw human text; the tool's isApproved() classifies it.
+        response: input.message,
+      }),
+    ]);
+    return liveReplyFromResult(result, agent, session.role, session.scope, {
+      ...input,
+      genieSession: null,
+    });
+  } catch (err) {
+    // If resume fails (snapshot/model hiccup), don't dead-end — report it and
+    // clear the paused session so the user can start over. Never silently
+    // execute the destructive action.
+    return {
+      message: `I couldn't resume that confirmation (${(err as Error).message}). Nothing was changed — please try the request again.`,
+      engine: 'strands-bedrock',
+      genieSession: null,
+    };
+  }
+}
+
+/** The prose shown with a human-in-the-loop confirmation card. */
+function hitlPromptText(interrupt: Interrupt): string {
+  const reason = interrupt.reason as {prompt?: string} | undefined;
+  const prompt = reason?.prompt ?? 'Please confirm this action.';
+  return `${prompt}\n\nReply **yes** to proceed, or **no** to cancel.`;
+}
+
+/** Build the render-only HITL card from an offboard-confirmation interrupt. */
+function hitlCardFrom(interrupt: Interrupt): HitlCard | null {
+  const r = interrupt.reason as
+    | {
+        kind?: string;
+        hireName?: string;
+        prompt?: string;
+        seats?: {app: string; monthly: number}[];
+        assets?: {name: string; serial: string; residual: number}[];
+        monthlyRecovered?: number;
+        oneTimeRecovered?: number;
+      }
+    | undefined;
+  if (!r || r.kind !== 'offboard') return null;
+  return {
+    type: 'hitl',
+    kind: 'offboard',
+    prompt: r.prompt ?? '',
+    hireName: r.hireName ?? '',
+    seats: (r.seats ?? []).map((s) => ({label: s.app, monthly: s.monthly})),
+    assets: (r.assets ?? []).map((a) => ({
+      label: `${a.name} (${a.serial})`,
+      residual: a.residual,
+    })),
+    monthlyRecovered: r.monthlyRecovered ?? 0,
+    oneTimeRecovered: r.oneTimeRecovered ?? 0,
   };
 }
 

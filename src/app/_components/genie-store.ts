@@ -32,6 +32,8 @@ export interface GenieState {
   plan: unknown;
   offboard: unknown;
   templateDraft: unknown;
+  /** Paused live-agent session awaiting a human-in-the-loop confirmation. */
+  genieSession: unknown;
   engine: 'strands-bedrock' | 'scripted' | null;
 }
 
@@ -43,6 +45,7 @@ function initialState(): GenieState {
     plan: null,
     offboard: null,
     templateDraft: null,
+    genieSession: null,
     engine: null,
   };
 }

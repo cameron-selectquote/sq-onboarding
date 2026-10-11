@@ -66,11 +66,24 @@ interface TemplateTableCard {
   }[];
 }
 
+/** A human-in-the-loop confirmation card (destructive action awaiting yes/no). */
+interface HitlCard {
+  type: 'hitl';
+  kind: 'offboard';
+  prompt: string;
+  hireName: string;
+  seats: {label: string; monthly: number}[];
+  assets: {label: string; residual: number}[];
+  monthlyRecovered: number;
+  oneTimeRecovered: number;
+}
+
 type GenieCard =
   | ReclaimCard
   | StatusCard
   | CandidateTableCard
-  | TemplateTableCard;
+  | TemplateTableCard
+  | HitlCard;
 
 interface ChatTurn {
   role: 'genie' | 'user';
@@ -88,6 +101,8 @@ interface GenieReply {
   offboard?: unknown;
   /** Opaque in-progress template build — round-tripped across turns. */
   templateDraft?: unknown;
+  /** Opaque paused human-in-the-loop session — round-tripped across turns. */
+  genieSession?: unknown;
   /** Optional structured card to render alongside the message (render-only). */
   card?: GenieCard | null;
 }
@@ -248,6 +263,57 @@ function StatusCardView({card}: {card: StatusCard}) {
           Recurring spend: <strong>{money0(card.monthlyRecurring)}/mo</strong>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Confirmation card for a destructive action paused by the live agent (HITL). */
+function HitlCardView({card}: {card: HitlCard}) {
+  return (
+    <div className='reclaim-card' role='group'>
+      <div className='reclaim-card-head'>
+        <span className='reclaim-card-title'>Confirm · {card.hireName}</span>
+        <span className='tag tag-neutral'>Needs approval</span>
+      </div>
+
+      {card.seats.length > 0 && (
+        <div className='reclaim-card-section'>
+          <span className='reclaim-card-label'>Seats to revoke</span>
+          {card.seats.map((s, i) => (
+            <div key={i} className='reclaim-card-row'>
+              <span>{s.label}</span>
+              <span className='reclaim-card-amt'>{money0(s.monthly)}/mo</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {card.assets.length > 0 && (
+        <div className='reclaim-card-section'>
+          <span className='reclaim-card-label'>Hardware to return</span>
+          {card.assets.map((a, i) => (
+            <div key={i} className='reclaim-card-row'>
+              <span>{a.label}</span>
+              <span className='reclaim-card-amt'>{money0(a.residual)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className='reclaim-card-totals'>
+        <div className='reclaim-card-total'>
+          <span className='reclaim-card-total-value'>
+            {money0(card.monthlyRecovered)}/mo
+          </span>
+          <span className='reclaim-card-total-label'>recurring</span>
+        </div>
+        <div className='reclaim-card-total'>
+          <span className='reclaim-card-total-value'>
+            {money0(card.oneTimeRecovered)}
+          </span>
+          <span className='reclaim-card-total-label'>one-time</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -430,6 +496,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
           plan: snapshot.plan,
           offboard: snapshot.offboard,
           templateDraft: snapshot.templateDraft,
+          genieSession: snapshot.genieSession,
         }),
       });
       const data = (await res.json()) as GenieReply & {error?: string};
@@ -446,10 +513,12 @@ export function GenieChat({initialName}: {initialName?: string}) {
             card: data.card ?? null,
           },
         ],
-        // Carry the pending plan + offboard + template-draft state forward.
+        // Carry the pending plan + offboard + template-draft + paused HITL
+        // session forward.
         plan: data.plan ?? null,
         offboard: data.offboard ?? null,
         templateDraft: data.templateDraft ?? null,
+        genieSession: data.genieSession ?? null,
         confirmedCandidateId: found ?? prev.confirmedCandidateId,
       }));
     } catch (err) {
@@ -617,6 +686,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
                 {t.card?.type === 'templates' && (
                   <TemplateTableView card={t.card} />
                 )}
+                {t.card?.type === 'hitl' && <HitlCardView card={t.card} />}
               </div>
             : <p className='genie-text'>{t.text}</p>}
           </div>

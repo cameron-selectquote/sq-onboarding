@@ -1,5 +1,6 @@
 import {
   classifyConfirmation,
+  isApproved,
   parseCreateTemplateIntent,
   parseListCandidatesIntent,
   parseListTemplatesIntent,
@@ -224,5 +225,28 @@ describe('parseListTemplatesIntent', () => {
         false,
       );
     }
+  });
+});
+
+describe('isApproved (human-in-the-loop gate)', () => {
+  it('approves only on an explicit affirmative', () => {
+    expect(isApproved(true)).toBe(true);
+    expect(isApproved({approved: true})).toBe(true);
+    expect(isApproved('yes')).toBe(true);
+    expect(isApproved('yes, offboard them')).toBe(true);
+    expect(isApproved('go ahead')).toBe(true);
+  });
+
+  it('fails closed on negatives, ambiguity, and malformed input', () => {
+    expect(isApproved(false)).toBe(false);
+    expect(isApproved(null)).toBe(false);
+    expect(isApproved(undefined)).toBe(false);
+    expect(isApproved({approved: false})).toBe(false);
+    expect(isApproved({})).toBe(false);
+    expect(isApproved('no')).toBe(false);
+    expect(isApproved('cancel')).toBe(false);
+    expect(isApproved('wait')).toBe(false);
+    // Ambiguous longer replies must not approve a destructive action.
+    expect(isApproved('yes but first add Jira')).toBe(false);
   });
 });

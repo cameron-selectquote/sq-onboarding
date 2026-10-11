@@ -273,3 +273,27 @@ export function parseOffboardIntent(text: string): string | null {
   if (m2) return m2[1]!.trim();
   return null;
 }
+
+/**
+ * The human's reply to a human-in-the-loop interrupt (e.g. the Strands
+ * `interrupt()` confirmation gate for a destructive action). The client sends
+ * back either a bare string ("yes"/"no"), a structured `{approved}`, or a raw
+ * boolean; all are normalized by `isApproved`.
+ */
+export type HitlApproval = boolean | string | {approved?: boolean} | null;
+
+/**
+ * True only for an explicit, unambiguous human approval. Fails closed: anything
+ * ambiguous, negative, or malformed is treated as "not approved", so a
+ * destructive action never runs on a half-answer.
+ */
+export function isApproved(value: HitlApproval | undefined): boolean {
+  if (value === true) return true;
+  if (typeof value === 'object' && value !== null) {
+    return value.approved === true;
+  }
+  if (typeof value === 'string') {
+    return classifyConfirmation(value) === 'affirmative';
+  }
+  return false;
+}

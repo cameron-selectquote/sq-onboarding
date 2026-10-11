@@ -33,6 +33,7 @@ export async function POST(req: Request) {
     plan?: unknown;
     offboard?: unknown;
     templateDraft?: unknown;
+    genieSession?: unknown;
   };
   if (!body.message || !body.message.trim()) {
     return NextResponse.json({error: 'message is required'}, {status: 400});
@@ -47,11 +48,14 @@ export async function POST(req: Request) {
       scope,
       history: Array.isArray(body.history) ? body.history : [],
       confirmedCandidateId: body.confirmedCandidateId ?? null,
-      // The client round-trips the pending plan + offboard + template state.
+      // The client round-trips the pending plan + offboard + template state,
+      // plus any paused human-in-the-loop session awaiting confirmation.
       plan: (body.plan as GenieTurnInput['plan']) ?? null,
       offboard: (body.offboard as GenieTurnInput['offboard']) ?? null,
       templateDraft:
         (body.templateDraft as GenieTurnInput['templateDraft']) ?? null,
+      genieSession:
+        (body.genieSession as GenieTurnInput['genieSession']) ?? null,
     });
     return NextResponse.json(reply);
   } catch (err) {
