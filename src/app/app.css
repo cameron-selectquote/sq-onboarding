@@ -863,6 +863,10 @@ details.side-section[open] > summary .side-section-chevron {
     align-items: center;
     overflow-x: auto;
     padding: 12px;
+    /* Top strip on mobile: undo the pinned full-height sidebar. */
+    position: static;
+    height: auto;
+    overflow-y: visible;
   }
   .side-brand {
     padding: 0 8px 0 0;
@@ -893,6 +897,14 @@ details.side-section[open] > summary .side-section-chevron {
   .side-user {
     white-space: nowrap;
     margin-left: auto;
+    /* On the top strip it's a plain right-aligned item, not a sticky footer. */
+    position: static;
+    bottom: auto;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    box-shadow: none;
   }
   .main {
     padding: 20px 16px;
