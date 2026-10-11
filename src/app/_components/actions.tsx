@@ -152,6 +152,63 @@ export function LicenseButton({
   );
 }
 
+/** Open a reclaim job per seat — POST /api/reclaim-tasks (finance flags, IT executes). */
+export function ReclaimButton({
+  licenseIds,
+  createdByTeam,
+  label,
+  className = "btn btn-secondary",
+}: {
+  licenseIds: string[];
+  createdByTeam: "finance" | "it";
+  label: string;
+  className?: string;
+}) {
+  const { run, pending, error } = useMutation();
+  return (
+    <span>
+      <button
+        className={className}
+        disabled={pending || licenseIds.length === 0}
+        onClick={() =>
+          run(licenseIds.map((id) => () => send("/api/reclaim-tasks", "POST", { licenseId: id, createdByTeam })))
+        }
+      >
+        {pending ? "Working…" : label}
+      </button>
+      {error && <span className="error"> {error}</span>}
+    </span>
+  );
+}
+
+/** Drive one reclaim job — PATCH /api/reclaim-tasks/:id (Start / Mark done / Cancel). */
+export function ReclaimJobButton({
+  taskId,
+  action,
+  label,
+  primary,
+}: {
+  taskId: string;
+  action: "start" | "complete" | "cancel";
+  label: string;
+  primary?: boolean;
+}) {
+  const { run, pending, error } = useMutation();
+  return (
+    <span>
+      <button
+        className={primary ? "btn btn-primary" : "btn btn-secondary"}
+        style={{ fontSize: 13 }}
+        disabled={pending}
+        onClick={() => run([() => send(`/api/reclaim-tasks/${taskId}`, "PATCH", { action })])}
+      >
+        {label}
+      </button>
+      {error && <span className="error"> {error}</span>}
+    </span>
+  );
+}
+
 /** Raise a PO for a hire — POST /api/pos. Serial tag is generated client-side. */
 export function RaisePoForm({
   hires,

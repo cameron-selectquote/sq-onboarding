@@ -7,7 +7,7 @@ import { buildBvA, financeSummary, monthlyCost, reclaimImpact, recurringMonthlyB
 import { buildReclaimReport } from "@/lib/reclaim";
 import type { LicenseReclaimFlag } from "@/lib/reclaim";
 import type { BvAReport, FinanceSummary, ReclaimImpact } from "@/lib/finance";
-import type { AppCatalogItem, Budget, Hire, LedgerEntry, License } from "@/lib/types";
+import type { AppCatalogItem, Budget, Hire, LedgerEntry, License, ReclaimTask } from "@/lib/types";
 import { OFFBOARDING_COHORT } from "@/data/seed";
 import { getServices } from "./store";
 
@@ -255,6 +255,71 @@ export async function getReclaimBreakdown(): Promise<ReclaimBreakdown> {
   const monthly = reasons.reduce((acc, r) => acc + r.monthly, 0);
   const seats = reasons.reduce((acc, r) => acc + r.seats, 0);
   return { reasons, monthly, annual: monthly * 12, seats };
+}
+
+/** One open/closed reclaim job, enriched for the finance + IT views. */
+export interface ReclaimJob {
+  taskId: string;
+  status: ReclaimTask["status"];
+  licenseId: string;
+  /** Hire holding the seat, or null if unassigned. */
+  hireName: string | null;
+  /** App display name. */
+  app: string;
+  /** Per-seat monthly cost ($/mo). */
+  monthly: number;
+  createdByTeam: ReclaimTask["createdByTeam"];
+}
+
+/**
+ * The reclaim-job view shared by the finance page and the IT rail panel: open
+ * jobs (pending/reclaiming) enriched with hire + app + per-seat $/mo, plus
+ * lifecycle counts. This is a *presenter* over the reclaimTasks collection — it
+ * does NOT touch getReclaimQueue/getReclaimBreakdown/buildReclaimReport, so
+ * finance totals and the reclaim queue keep agreeing. Note: flagByStatus in the
+ * reclaim engine already counts a 'reclaim'-status license once, so an open
+ * job's seat is surfaced here but not double-counted in the recoverable totals.
+ */
+export async function getReclaimJobs(): Promise<{
+  jobs: ReclaimJob[];
+  counts: { pending: number; reclaiming: number; done: number };
+}> {
+  const { repo } = await getServices();
+  const [reclaimTasks, licenses, apps, hires] = await Promise.all([
+    repo.reclaimTasks.list(),
+    repo.licenses.list(),
+    repo.appCatalog.list(),
+    repo.hires.list(),
+  ]);
+
+  const licenseById = new Map(licenses.map((l) => [l.id, l]));
+  const appById = new Map(apps.map((a) => [a.id, a]));
+  const hireById = new Map(hires.map((h) => [h.id, h]));
+
+  const counts = { pending: 0, reclaiming: 0, done: 0 };
+  for (const t of reclaimTasks) {
+    if (t.status === "pending") counts.pending += 1;
+    else if (t.status === "reclaiming") counts.reclaiming += 1;
+    else if (t.status === "done") counts.done += 1;
+  }
+
+  const jobs: ReclaimJob[] = reclaimTasks
+    .filter((t) => t.status === "pending" || t.status === "reclaiming")
+    .map((t) => {
+      const license = licenseById.get(t.licenseId);
+      const app = license ? appById.get(license.appId) : undefined;
+      return {
+        taskId: t.id,
+        status: t.status,
+        licenseId: t.licenseId,
+        hireName: (license && hireById.get(license.hireId)?.name) ?? null,
+        app: app?.name ?? "Unknown app",
+        monthly: app ? monthlyCost(app.costPerSeat, app.billing) : 0,
+        createdByTeam: t.createdByTeam,
+      };
+    });
+
+  return { jobs, counts };
 }
 
 /**

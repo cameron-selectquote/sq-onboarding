@@ -1,6 +1,6 @@
-import { getBudgetVsActual, getReclaimBreakdown, getReclaimQueue } from "@/server/queries";
+import { getBudgetVsActual, getReclaimBreakdown, getReclaimJobs, getReclaimQueue } from "@/server/queries";
 import { Meter, Shell } from "../../_components/Shell";
-import { LicenseButton } from "../../_components/actions";
+import { ReclaimButton } from "../../_components/actions";
 import { money } from "../../_components/format";
 import { FINANCE_NAV } from "../nav";
 
@@ -8,11 +8,15 @@ export const dynamic = "force-dynamic";
 
 /** Finance reclaim-first (design 2d): what we can take back right now. */
 export default async function FinanceReclaim() {
-  const [{ rows: queue, monthly: recoverable }, breakdown, { bva, reclaim }] = await Promise.all([
+  const [{ rows: queue, monthly: recoverable }, breakdown, { bva, reclaim }, { jobs, counts }] = await Promise.all([
     getReclaimQueue(),
     getReclaimBreakdown(),
     getBudgetVsActual(),
+    getReclaimJobs(),
   ]);
+
+  // Jobs finance kicked off — surfaced so finance can watch IT execute them.
+  const financeJobs = jobs.filter((j) => j.createdByTeam === "finance");
 
   const maxReason = Math.max(1, ...breakdown.reasons.map((r) => r.monthly));
   // Share of this quarter's projected overage that reclaiming would cover.
@@ -33,9 +37,9 @@ export default async function FinanceReclaim() {
                 }`}
           </span>
         </div>
-        <LicenseButton
+        <ReclaimButton
           className="btn btn-on-color"
-          action="revoke"
+          createdByTeam="finance"
           label="Reclaim all"
           licenseIds={queue.flatMap((r) => r.licenseIds)}
         />
@@ -60,7 +64,7 @@ export default async function FinanceReclaim() {
                       </span>
                     </div>
                     <span className="amt">{money(Math.round(r.monthly * 100) / 100)}/mo</span>
-                    <LicenseButton action="revoke" label="Revoke" licenseIds={r.licenseIds} />
+                    <ReclaimButton createdByTeam="finance" label="Reclaim" licenseIds={r.licenseIds} />
                   </div>
                 );
               }
@@ -74,7 +78,7 @@ export default async function FinanceReclaim() {
                       <span className="who-sub">{r.why} · tap to see seats</span>
                     </div>
                     <span className="amt">{money(Math.round(r.monthly * 100) / 100)}/mo</span>
-                    <LicenseButton action="revoke" label="Revoke all" licenseIds={r.licenseIds} />
+                    <ReclaimButton createdByTeam="finance" label="Reclaim all" licenseIds={r.licenseIds} />
                   </summary>
                   <div className="reclaim-seats">
                     {r.seats.map((s) => (
@@ -84,7 +88,7 @@ export default async function FinanceReclaim() {
                           <span className="who-sub">{s.app} · {s.detail}</span>
                         </div>
                         <span className="amt">{money(Math.round(s.monthly * 100) / 100)}/mo</span>
-                        <LicenseButton action="revoke" label="Revoke" licenseIds={[s.licenseId]} />
+                        <ReclaimButton createdByTeam="finance" label="Reclaim" licenseIds={[s.licenseId]} />
                       </div>
                     ))}
                   </div>
@@ -107,6 +111,32 @@ export default async function FinanceReclaim() {
           ))}
         </section>
       </div>
+      <section className="panel" style={{ gap: 4 }}>
+        <div className="meter-head" style={{ alignItems: "center" }}>
+          <span className="panel-title">Reclaim jobs</span>
+          <span className="muted" style={{ fontSize: 13 }}>
+            {counts.pending} pending · {counts.reclaiming} reclaiming · {counts.done} done
+          </span>
+        </div>
+        {financeJobs.length === 0 ? (
+          <span className="empty">No open jobs. Flag a seat above to kick one off for IT.</span>
+        ) : (
+          <div className="rows">
+            {financeJobs.map((j) => (
+              <div key={j.taskId} className="row row-seat">
+                <div className="who-text">
+                  <span className="who-name">{j.hireName ?? "Unassigned"}</span>
+                  <span className="who-sub">{j.app}</span>
+                </div>
+                <span className="amt">{money(Math.round(j.monthly * 100) / 100)}/mo</span>
+                <span className={j.status === "reclaiming" ? "pill pill-progress" : "pill pill-none"}>
+                  {j.status === "reclaiming" ? "Reclaiming" : "Pending"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </Shell>
   );
 }

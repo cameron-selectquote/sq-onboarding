@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { getServices } from "@/server/store";
+import { getReclaimJobs } from "@/server/queries";
 import type { Task, TaskStatus } from "@/lib/types";
 import { Avatar, PageHead, SegLinks, Shell } from "../../_components/Shell";
-import { LicenseButton, RaisePoForm, TaskMoveButton } from "../../_components/actions";
-import { costLabel, isTeam, shortDate, teamLabel } from "../../_components/format";
+import { LicenseButton, RaisePoForm, ReclaimJobButton, TaskMoveButton } from "../../_components/actions";
+import { costLabel, isTeam, money, shortDate, teamLabel } from "../../_components/format";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,8 @@ export default async function TeamQueue({
     .filter((c) => c.n > 0);
   // Requested-but-never-granted seats (seeded as revoked with no grantedAt).
   const requested = licenses.filter((l) => l.status === "revoked" && l.grantedAt === null);
+  // IT-only: open reclaim jobs IT executes (finance flags, IT runs them).
+  const reclaimJobs = team === "it" ? (await getReclaimJobs()).jobs : [];
   const base = `/team/${team}`;
 
   return (
@@ -140,6 +143,28 @@ export default async function TeamQueue({
                   licenseIds={requested.map((l) => l.id)}
                 />
               )}
+            </section>
+          )}
+
+          {team === "it" && (
+            <section className="turn" style={{ background: "var(--color-accent-100)", color: "var(--color-accent-900)" }}>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>Reclaim queue</span>
+              {reclaimJobs.length === 0 && <span style={{ fontSize: 13 }}>No seats flagged for reclaim.</span>}
+              {reclaimJobs.map((j) => (
+                <div key={j.taskId} className="row row-seat" style={{ padding: "4px 0", borderTop: 0, gap: 8 }}>
+                  <span style={{ fontSize: 13 }}>
+                    {j.app} · {j.hireName ?? "Unassigned"} · {money(Math.round(j.monthly * 100) / 100)}/mo
+                    {j.status === "reclaiming" && (
+                      <span className="pill pill-progress" style={{ marginLeft: 8 }}>Reclaiming</span>
+                    )}
+                  </span>
+                  {j.status === "pending" && (
+                    <ReclaimJobButton taskId={j.taskId} action="start" label="Start" primary />
+                  )}
+                  <ReclaimJobButton taskId={j.taskId} action="complete" label="Mark done" primary={j.status === "reclaiming"} />
+                  <ReclaimJobButton taskId={j.taskId} action="cancel" label="Cancel" />
+                </div>
+              ))}
             </section>
           )}
 
