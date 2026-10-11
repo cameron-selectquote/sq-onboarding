@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 /**
  * Access-brief drafter. Picks a hire, calls POST /api/ai/draft-brief, and
@@ -8,7 +8,7 @@
  * instead of refreshing the server page.
  */
 
-import { useState } from "react";
+import {useState} from 'react';
 
 interface BriefBlurb {
   appId: string;
@@ -16,28 +16,31 @@ interface BriefBlurb {
   body: string;
 }
 
-export function BriefDrafter({ hires }: { hires: { id: string; name: string }[] }) {
-  const [hireId, setHireId] = useState(hires[0]?.id ?? "");
+export function BriefDrafter({hires}: {hires: {id: string; name: string}[]}) {
+  const [hireId, setHireId] = useState(hires[0]?.id ?? '');
   const [blurbs, setBlurbs] = useState<BriefBlurb[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
-  const hireName = hires.find((h) => h.id === hireId)?.name ?? "";
+  const hireName = hires.find((h) => h.id === hireId)?.name ?? '';
 
   async function draft() {
     setBusy(true);
     setError(null);
+    setSent(false);
     try {
-      const res = await fetch("/api/ai/draft-brief", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hireId }),
+      const res = await fetch('/api/ai/draft-brief', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({hireId}),
       });
       const data = (await res.json().catch(() => ({}))) as {
         blurbs?: BriefBlurb[];
         error?: string;
       };
-      if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+      if (!res.ok)
+        throw new Error(data.error ?? `Request failed (${res.status})`);
       setBlurbs(data.blurbs ?? []);
     } catch (err) {
       setError((err as Error).message);
@@ -47,19 +50,26 @@ export function BriefDrafter({ hires }: { hires: { id: string; name: string }[] 
     }
   }
 
+  // Not wired to a mail provider yet — this just confirms the intent so the
+  // flow is in place. Real delivery drops in behind this button later.
+  function sendEmail() {
+    setSent(true);
+  }
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <section className="panel" style={{ padding: 20, gap: 14 }}>
-        <div className="field">
-          <label htmlFor="brief-hire">Draft a welcome brief for</label>
+    <div style={{display: 'flex', flexDirection: 'column', gap: 18}}>
+      <section className='panel' style={{padding: 20, gap: 14}}>
+        <div className='field'>
+          <label htmlFor='brief-hire'>Draft a welcome brief for</label>
           <select
-            id="brief-hire"
-            className="input"
+            id='brief-hire'
+            className='input'
             value={hireId}
             onChange={(e) => {
               setHireId(e.target.value);
               setBlurbs(null);
               setError(null);
+              setSent(false);
             }}
           >
             {hires.map((h) => (
@@ -69,35 +79,74 @@ export function BriefDrafter({ hires }: { hires: { id: string; name: string }[] 
             ))}
           </select>
         </div>
-        <button className="btn btn-primary" disabled={busy || !hireId} onClick={draft}>
-          {busy ? "Drafting…" : "Generate brief"}
+        <button
+          className='btn btn-primary'
+          disabled={busy || !hireId}
+          onClick={draft}
+        >
+          {busy ? 'Drafting…' : 'Generate brief'}
         </button>
-        {error && <span className="error">{error}</span>}
+        {error && <span className='error'>{error}</span>}
       </section>
 
       {blurbs !== null && (
-        <section className="panel" style={{ gap: 6 }}>
-          <div className="panel-head" style={{ paddingBottom: 6 }}>
-            <span className="panel-title">{hireName}&rsquo;s access brief</span>
-            <span className="tag tag-accent-2">AI drafted</span>
+        <section className='panel' style={{gap: 6}}>
+          <div className='panel-head' style={{paddingBottom: 6}}>
+            <span className='panel-title'>
+              {hireName}&rsquo;s welcome brief
+            </span>
+            <span className='tag tag-accent-2'>AI drafted</span>
           </div>
           {blurbs.length === 0 && (
-            <span className="empty">
-              No active seats to brief yet. Grant this hire some licenses first.
+            <span className='empty'>
+              Nothing to brief yet. Grant this hire some licenses or provision
+              hardware first.
             </span>
           )}
-          <div className="rows">
+          <div className='rows'>
             {blurbs.map((b) => (
-              <div key={b.appId} className="row row-ledger" style={{ alignItems: "flex-start" }}>
-                <div className="who-text">
-                  <span className="who-name">{b.heading}</span>
-                  <span className="who-sub" style={{ whiteSpace: "normal", lineHeight: 1.45 }}>
+              <div
+                key={b.appId}
+                className='row row-ledger'
+                style={{alignItems: 'flex-start'}}
+              >
+                <div className='who-text'>
+                  <span className='who-name'>{b.heading}</span>
+                  <span
+                    className='who-sub'
+                    style={{whiteSpace: 'normal', lineHeight: 1.45}}
+                  >
                     {b.body}
                   </span>
                 </div>
               </div>
             ))}
           </div>
+          {blurbs.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                paddingTop: 10,
+                borderTop: '1px solid var(--color-divider)',
+                marginTop: 4,
+              }}
+            >
+              <button
+                className='btn btn-primary'
+                onClick={sendEmail}
+                disabled={sent}
+              >
+                {sent ? 'Email queued' : 'Send email'}
+              </button>
+              <span className='muted' style={{fontSize: 13}}>
+                {sent ?
+                  `Queued a welcome email to ${hireName}. (Delivery isn't wired up yet.)`
+                : `Sends this brief to ${hireName}.`}
+              </span>
+            </div>
+          )}
         </section>
       )}
     </div>

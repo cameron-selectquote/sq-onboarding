@@ -109,6 +109,124 @@ function stripNameTail(raw: string): string | null {
 }
 
 /**
+ * Detect a "show me the candidates" request — a read-only ask to list who's
+ * available to onboard. Matches "show candidates", "list the candidates",
+ * "who can I onboard", "who's in the pipeline", "candidate list". Returns true
+ * when the message is such a request.
+ *
+ * Deliberately requires the word "candidate(s)" OR a clear list-the-pipeline
+ * phrasing, so a specific "onboard Nora" or "pull up Sam" isn't swallowed.
+ */
+export function parseListCandidatesIntent(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+
+  // "who can I onboard", "who's available to onboard", "who's in the pipeline".
+  // Checked first because it legitimately contains "onboard".
+  if (
+    /\bwho(?:'?s| is| can| could| do i)\b.*\b(onboard|pipeline|available|hire|hiring|candidate)\b/.test(
+      lower,
+    )
+  ) {
+    return true;
+  }
+
+  // A single-name lookup/onboard ("onboard Nora", "pull up Sam") is not a list
+  // request. Guarded after the "who can I onboard" case above.
+  if (/\b(onboard|offboard|off-board|pull up|bring up)\b/.test(lower)) {
+    return false;
+  }
+
+  if (
+    /\bcandidates?\b/.test(lower) &&
+    /\b(show|list|see|view|display|who|what|all|current|available|pipeline|surface|give|pull)\b/.test(
+      lower,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detect a request to REMOVE / revoke / reclaim a specific software seat from a
+ * named person. Returns the hire name + the app/seat reference, or null when
+ * the message isn't a seat-removal request.
+ *
+ * Examples: "revoke Nora's Figma seat", "remove Slack from Sam",
+ * "reclaim Taylor's idle GitHub license", "take away Jordan's Jira seat".
+ */
+export interface RemoveSeatIntent {
+  hint: string;
+  appRef: string;
+}
+
+export function parseRemoveSeatIntent(text: string): RemoveSeatIntent | null {
+  const lower = text.toLowerCase();
+
+  // Must be a removal verb aimed at a seat/license, not offboarding a person.
+  if (/\b(offboard|off-board|deprovision)\b/.test(lower)) return null;
+  const removal =
+    /\b(revoke|reclaim|remove|take away|take back|cancel|drop|pull)\b/.test(
+      lower,
+    );
+  const seatish = /\b(seat|licen[cs]e|access|subscription|app)\b/.test(lower);
+  if (!removal) return null;
+
+  // "remove Slack from Sam" / "revoke Figma from Nora Alvarez"
+  const fromMatch = text.match(
+    /\b(?:revoke|reclaim|remove|take away|take back|cancel|drop|pull)\s+(?:the\s+)?(.+?)\s+(?:seat|licen[cs]e|access|subscription)?\s*from\s+(.+)/i,
+  );
+  if (fromMatch) {
+    return {
+      appRef: cleanRef(fromMatch[1]!),
+      hint: cleanRef(fromMatch[2]!),
+    };
+  }
+
+  // "revoke Nora's Figma seat" / "reclaim Taylor's idle GitHub license"
+  const possessiveMatch = text.match(
+    /\b(?:revoke|reclaim|remove|take away|take back|cancel|drop|pull)\s+(.+?)['’]s\s+(.+)/i,
+  );
+  if (possessiveMatch) {
+    const appRef = possessiveMatch[2]!
+      .replace(/\b(idle|duplicate|unused|stale|the)\b/gi, '')
+      .replace(/\b(seat|licen[cs]e|access|subscription)\b/gi, '')
+      .trim();
+    return {
+      hint: cleanRef(possessiveMatch[1]!),
+      appRef: cleanRef(appRef),
+    };
+  }
+
+  // Needs the seat word to avoid false positives if we got this far.
+  if (!seatish) return null;
+  return null;
+}
+
+/** Strip trailing punctuation + filler words off an extracted fragment. */
+function cleanRef(raw: string): string {
+  return raw
+    .replace(/[.?!,]+$/, '')
+    .replace(/^\s*(the|a|an)\s+/i, '')
+    .trim();
+}
+
+/**
+ * Detect a request to CREATE a new onboarding template. Returns true for
+ * "create a template", "build a new template", "add a role template",
+ * "make a new onboarding template", "set up a template". Returns false
+ * otherwise so normal handling runs.
+ */
+export function parseCreateTemplateIntent(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  if (!/\btemplate\b/.test(lower)) return false;
+  return /\b(create|build|make|add|new|set ?up|start|design|define)\b/.test(
+    lower,
+  );
+}
+
+/**
  * Detect an offboarding request and extract the hire name. Returns null when
  * the message isn't an offboard intent at all.
  */

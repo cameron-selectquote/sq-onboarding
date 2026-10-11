@@ -1,6 +1,9 @@
 import {
   classifyConfirmation,
+  parseCreateTemplateIntent,
+  parseListCandidatesIntent,
   parseOffboardIntent,
+  parseRemoveSeatIntent,
   parseViewIntent,
 } from '@/lib/intent';
 
@@ -118,5 +121,73 @@ describe('parseViewIntent', () => {
     expect(parseViewIntent('show me')).toBeNull();
     expect(parseViewIntent('what does it cost')).toBeNull();
     expect(parseViewIntent('publish')).toBeNull();
+  });
+});
+
+describe('parseListCandidatesIntent', () => {
+  it('matches explicit list-the-candidates requests', () => {
+    for (const t of [
+      'show me the candidates',
+      'list candidates',
+      'show candidates',
+      'what candidates are available',
+      'who can I onboard',
+      "who's in the pipeline",
+      'current candidates',
+    ]) {
+      expect(parseListCandidatesIntent(t)).toBe(true);
+    }
+  });
+
+  it('does not treat a single-name onboard/lookup as a list request', () => {
+    expect(parseListCandidatesIntent('onboard Nora Alvarez')).toBe(false);
+    expect(parseListCandidatesIntent('pull up Sam')).toBe(false);
+    expect(parseListCandidatesIntent('offboard Quinn')).toBe(false);
+    expect(parseListCandidatesIntent('Nora Alvarez')).toBe(false);
+  });
+});
+
+describe('parseRemoveSeatIntent', () => {
+  it('parses a possessive seat removal', () => {
+    expect(parseRemoveSeatIntent("revoke Nora's Figma seat")).toEqual({
+      hint: 'Nora',
+      appRef: 'Figma',
+    });
+    expect(
+      parseRemoveSeatIntent("reclaim Taylor Kim's idle GitHub license"),
+    ).toEqual({hint: 'Taylor Kim', appRef: 'GitHub'});
+  });
+
+  it('parses a "from <person>" seat removal', () => {
+    expect(parseRemoveSeatIntent('remove Slack from Sam')).toEqual({
+      hint: 'Sam',
+      appRef: 'Slack',
+    });
+  });
+
+  it('ignores offboarding and non-removal messages', () => {
+    expect(parseRemoveSeatIntent('offboard Quinn Baker')).toBeNull();
+    expect(parseRemoveSeatIntent('pull up Nora')).toBeNull();
+    expect(parseRemoveSeatIntent('onboard Sam')).toBeNull();
+  });
+});
+
+describe('parseCreateTemplateIntent', () => {
+  it('matches create-template requests', () => {
+    for (const t of [
+      'create a template',
+      'build a new template',
+      'make a new onboarding template',
+      'add a role template',
+      'set up a template',
+    ]) {
+      expect(parseCreateTemplateIntent(t)).toBe(true);
+    }
+  });
+
+  it('does not match unrelated messages', () => {
+    expect(parseCreateTemplateIntent('use the Designer template')).toBe(false);
+    expect(parseCreateTemplateIntent('onboard Nora')).toBe(false);
+    expect(parseCreateTemplateIntent('create a plan')).toBe(false);
   });
 });

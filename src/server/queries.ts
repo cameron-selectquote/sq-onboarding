@@ -13,7 +13,9 @@ import {
 } from '@/lib/finance';
 import {buildReclaimReport} from '@/lib/reclaim';
 import {seatPools} from '@/lib/seats';
-import {hireProgress, hireStatus} from '@/lib/progress';
+import {hireProgress, hireStatus, toHireChecklist} from '@/lib/progress';
+import {onboardingNorms} from '@/lib/onboarding-stats';
+import type {OnboardingNorms} from '@/lib/onboarding-stats';
 import type {SeatPool} from '@/lib/seats';
 import type {HireStatus} from '@/lib/progress';
 import type {LicenseReclaimFlag} from '@/lib/reclaim';
@@ -544,4 +546,231 @@ export async function getHireStatus(
     assets: statusAssets,
     monthlyRecurring,
   };
+}
+
+// ---- Role-scoped Genie read models ----------------------------------------
+//
+// Cost-free, scope-aware snapshots backing the manager and employee Genie
+// tools. They never return money fields (dollar amounts live only in the admin
+// finance read models above), so the employee/manager chat surfaces can't leak
+// spend even if a prompt slips.
+
+/** Public, cost-free company facts for the employee concierge. */
+export interface CompanyInfo {
+  name: string;
+  size: number;
+  industry: string;
+}
+
+/** The company the app is seeded for (the first/only company record). */
+export async function getCompanyInfo(): Promise<CompanyInfo | null> {
+  const {repo} = await getServices();
+  const [company] = await repo.companies.list();
+  if (!company) return null;
+  return {name: company.name, size: company.size, industry: company.industry};
+}
+
+/** A hire's manager, by name/email only — no reports-to graph, no costs. */
+export interface ManagerInfo {
+  name: string;
+  email: string;
+}
+
+/** Resolve a hire's manager (null when the hire or manager isn't found). */
+export async function getManagerForHire(
+  hireId: string,
+): Promise<ManagerInfo | null> {
+  const {repo} = await getServices();
+  const hire = await repo.hires.get(hireId);
+  if (!hire?.managerId) return null;
+  const manager = await repo.users.get(hire.managerId);
+  if (!manager) return null;
+  return {name: manager.name, email: manager.email};
+}
+
+/** A hire's own role framing + the tasks ahead — strictly cost-free. */
+export interface MyRoleInfo {
+  hireName: string;
+  roleName: string;
+  startDate: string;
+  managerName: string | null;
+  /** Cost-free checklist item titles, in order. */
+  tasks: {title: string; team: string; done: boolean}[];
+  done: number;
+  total: number;
+}
+
+/**
+ * The caller's own role/onboarding snapshot, built from the cost-free
+ * `toHireChecklist` projection so no cost field can ride along. Returns null
+ * when the hire id doesn't resolve.
+ */
+export async function getMyRoleInfo(
+  hireId: string,
+): Promise<MyRoleInfo | null> {
+  const {repo} = await getServices();
+  const hire = await repo.hires.get(hireId);
+  if (!hire) return null;
+  const [tasks, manager] = await Promise.all([
+    repo.tasks.where((t) => t.hireId === hireId),
+    hire.managerId ? repo.users.get(hire.managerId) : Promise.resolve(null),
+  ]);
+  const checklist = toHireChecklist(hire, tasks);
+  return {
+    hireName: checklist.hire.name,
+    roleName: checklist.hire.roleName,
+    startDate: checklist.hire.startDate,
+    managerName: manager?.name ?? null,
+    tasks: checklist.items.map((i) => ({
+      title: i.title,
+      team: i.ownerTeam,
+      done: i.status === 'done',
+    })),
+    done: checklist.done,
+    total: checklist.total,
+  };
+}
+
+/** Company-wide onboarding norms (nominal duration + shared milestones). */
+export async function getOnboardingNorms(): Promise<OnboardingNorms> {
+  const {repo} = await getServices();
+  const [hires, allTasks] = await Promise.all([
+    repo.hires.list(),
+    repo.tasks.list(),
+  ]);
+  const active = hires.filter((h) => h.cohort !== OFFBOARDING_COHORT);
+  const tasksByHire = active.map((h) =>
+    allTasks.filter((t) => t.hireId === h.id),
+  );
+  return onboardingNorms(tasksByHire);
+}
+
+/** One row in a manager's hire list — progress only, never cost. */
+export interface ManagerHireRow {
+  hireId: string;
+  name: string;
+  roleName: string;
+  startDate: string;
+  status: HireStatus;
+  done: number;
+  total: number;
+  nextTask: string | null;
+}
+
+/** The hires a given manager owns, with cost-free progress. Empty if none. */
+export async function getManagerHires(
+  managerUserId: string,
+): Promise<ManagerHireRow[]> {
+  const {repo} = await getServices();
+  const [hires, allTasks] = await Promise.all([
+    repo.hires.where((h) => h.managerId === managerUserId),
+    repo.tasks.list(),
+  ]);
+  return hires
+    .map((hire) => {
+      const tasks = allTasks.filter((t) => t.hireId === hire.id);
+      const progress = hireProgress(tasks);
+      return {
+        hireId: hire.id,
+        name: hire.name,
+        roleName: hire.roleName,
+        startDate: hire.startDate,
+        status: hireStatus(tasks),
+        done: progress.done,
+        total: progress.total,
+        nextTask: progress.next?.title ?? null,
+      };
+    })
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+}
+
+/**
+ * A manager-scoped, COST-FREE detail view of one of their hires. Reuses
+ * getHireStatus but strips every money field (monthly/residual/monthlyRecurring)
+ * at the boundary, and refuses hires the manager doesn't own.
+ */
+export interface ManagerHireDetail {
+  hireId: string;
+  name: string;
+  roleName: string;
+  startDate: string;
+  managerName: string | null;
+  offboarding: boolean;
+  status: HireStatus;
+  done: number;
+  total: number;
+  nextTask: string | null;
+  /** Software seats the hire holds, by app + status (no cost). */
+  software: {app: string; status: string}[];
+  /** Hardware assigned to the hire, by name + serial (no residual value). */
+  hardware: {name: string; serialTag: string}[];
+}
+
+/** Detail for one of a manager's own hires, or null if not theirs/not found. */
+export async function getManagerHireDetail(
+  managerUserId: string,
+  hireId: string,
+): Promise<ManagerHireDetail | null> {
+  const {repo} = await getServices();
+  const hire = await repo.hires.get(hireId);
+  if (!hire || hire.managerId !== managerUserId) return null; // fail closed
+  const s = await getHireStatus(hireId);
+  if (!s) return null;
+  return {
+    hireId: s.hireId,
+    name: s.name,
+    roleName: s.roleName,
+    startDate: s.startDate,
+    managerName: s.managerName,
+    offboarding: s.offboarding,
+    status: s.status,
+    done: s.done,
+    total: s.total,
+    nextTask: s.nextTask,
+    software: s.seats.map((seat) => ({app: seat.app, status: seat.status})),
+    hardware: s.assets.map((a) => ({name: a.name, serialTag: a.serialTag})),
+  };
+}
+
+/** A candidate row for a manager's open roles — identity + role, no cost. */
+export interface ManagerCandidateRow {
+  id: string;
+  name: string;
+  title: string;
+  roleName: string | null;
+  startDate: string | null;
+  onboarded: boolean;
+}
+
+/**
+ * Candidates relevant to a manager: those whose hiringManagerId is this
+ * manager, OR whose roleName matches a role the manager is already hiring for
+ * (so a manager sees the pipeline for their open roles). Cost-free.
+ */
+export async function getManagerCandidates(
+  managerUserId: string,
+): Promise<ManagerCandidateRow[]> {
+  const {repo} = await getServices();
+  const [candidates, myHires] = await Promise.all([
+    repo.candidates.list(),
+    repo.hires.where((h) => h.managerId === managerUserId),
+  ]);
+  const myRoles = new Set(
+    myHires.map((h) => h.roleName.toLowerCase()).filter(Boolean),
+  );
+  const mine = candidates.filter(
+    (c) =>
+      c.hiringManagerId === managerUserId ||
+      (c.roleName != null && myRoles.has(c.roleName.toLowerCase())),
+  );
+  return mine
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      title: c.title,
+      roleName: c.roleName,
+      startDate: c.startDate,
+      onboarded: Boolean(c.hireId),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

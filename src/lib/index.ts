@@ -12,6 +12,8 @@ export * from './sqlite-repository';
 export * from './ids';
 export * from './cohorts';
 export * from './intent';
+export * from './genie-access';
+export * from './onboarding-stats';
 export * from './ledger';
 export * from './notifications';
 export * from './finance';

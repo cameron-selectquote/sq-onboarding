@@ -7,9 +7,10 @@
  * user has confirmed so the publish step can target it.
  */
 
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {MiniMarkdown} from './MiniMarkdown';
 import {shortDate} from './format';
+import {getGenieState, setGenieState, subscribeGenie} from './genie-store';
 
 /** A structured recovered-spend card the chat renders as a visual panel. */
 interface ReclaimCard {
@@ -40,7 +41,21 @@ interface StatusCard {
   monthlyRecurring: number;
 }
 
-type GenieCard = ReclaimCard | StatusCard;
+/** A simple table of candidates the chat renders as a card. */
+interface CandidateTableCard {
+  type: 'candidates';
+  rows: {
+    id: string;
+    name: string;
+    title: string;
+    roleName: string | null;
+    manager: string | null;
+    startDate: string | null;
+    onboarded: boolean;
+  }[];
+}
+
+type GenieCard = ReclaimCard | StatusCard | CandidateTableCard;
 
 interface ChatTurn {
   role: 'genie' | 'user';
@@ -56,6 +71,8 @@ interface GenieReply {
   plan?: unknown;
   /** Opaque pending offboard — round-tripped so the yes/no gate persists. */
   offboard?: unknown;
+  /** Opaque in-progress template build — round-tripped across turns. */
+  templateDraft?: unknown;
   /** Optional structured card to render alongside the message (render-only). */
   card?: GenieCard | null;
 }
@@ -220,6 +237,43 @@ function StatusCardView({card}: {card: StatusCard}) {
   );
 }
 
+/** Simple candidate pipeline table for "show me the candidates". */
+function CandidateTableView({card}: {card: CandidateTableCard}) {
+  if (card.rows.length === 0) return null;
+  return (
+    <div className='cand-card' role='group'>
+      <table className='cand-table'>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Title</th>
+            <th>Role</th>
+            <th>Manager</th>
+            <th>Start</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {card.rows.map((r) => (
+            <tr key={r.id}>
+              <td>{r.name}</td>
+              <td>{r.title}</td>
+              <td>{r.roleName ?? '—'}</td>
+              <td>{r.manager ?? '—'}</td>
+              <td>{r.startDate ? shortDate(r.startDate) : '—'}</td>
+              <td>
+                {r.onboarded ?
+                  <span className='pill pill-done'>Onboarded</span>
+                : <span className='pill pill-none'>New</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** Pull a candidate id out of the Genie's reply so "publish" can target it. */
 function candidateIdFrom(text: string): string | null {
   const single = text.match(/\bid:\s*(cand_[a-z0-9_]+)/i);
@@ -230,40 +284,49 @@ function candidateIdFrom(text: string): string | null {
 }
 
 export function GenieChat({initialName}: {initialName?: string}) {
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  // Conversation state lives in a shared module store so it persists across
+  // route navigation (and across the overlay + the standalone page), and only
+  // resets on a full browser refresh.
+  const state = useSyncExternalStore(
+    subscribeGenie,
+    getGenieState,
+    getGenieState,
+  );
+  const turns = state.turns as ChatTurn[];
+  const engine = state.engine;
+
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [confirmedCandidateId, setConfirmedCandidateId] = useState<
-    string | null
-  >(null);
-  const [plan, setPlan] = useState<unknown>(null);
-  const [offboard, setOffboard] = useState<unknown>(null);
-  const [engine, setEngine] = useState<'strands-bedrock' | 'scripted' | null>(
-    null,
-  );
   const [helpOpen, setHelpOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Opening greeting + which engine is live.
+  // Opening greeting + which engine is live. Fetched once per bundle lifetime
+  // (guarded by state.started) so navigating back doesn't wipe the chat.
   useEffect(() => {
+    if (state.started) return;
+    setGenieState({started: true});
     let cancelled = false;
     fetch('/api/genie')
       .then((r) => r.json())
       .then((d: {greeting: string; engine: 'strands-bedrock' | 'scripted'}) => {
         if (cancelled) return;
-        setEngine(d.engine);
-        setTurns([{role: 'genie', text: d.greeting, engine: d.engine}]);
+        setGenieState({
+          engine: d.engine,
+          turns: [{role: 'genie', text: d.greeting, engine: d.engine}],
+        });
       })
       .catch(() => {
         if (!cancelled)
-          setTurns([
-            {role: 'genie', text: 'Hey, what can I help you with today?'},
-          ]);
+          setGenieState({
+            turns: [
+              {role: 'genie', text: 'Hi, what can I help you with today?'},
+            ],
+          });
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [state.started]);
 
   // Auto-start from a candidate ("Run Genie" on the candidates page). Fires
   // once, after the greeting is on screen, so the Genie opens already focused
@@ -287,8 +350,9 @@ export function GenieChat({initialName}: {initialName?: string}) {
     if (!text || busy) return;
     // Snapshot the conversation so far as history for context (the agent is
     // stateless across requests), then optimistically add this user turn.
-    const history = turns.map((t) => ({role: t.role, text: t.text}));
-    setTurns((t) => [...t, {role: 'user', text}]);
+    const snapshot = getGenieState();
+    const history = snapshot.turns.map((t) => ({role: t.role, text: t.text}));
+    setGenieState((prev) => ({turns: [...prev.turns, {role: 'user', text}]}));
     setBusy(true);
     try {
       const res = await fetch('/api/genie', {
@@ -297,36 +361,42 @@ export function GenieChat({initialName}: {initialName?: string}) {
         body: JSON.stringify({
           message: text,
           history,
-          confirmedCandidateId,
-          plan,
-          offboard,
+          confirmedCandidateId: snapshot.confirmedCandidateId,
+          plan: snapshot.plan,
+          offboard: snapshot.offboard,
+          templateDraft: snapshot.templateDraft,
         }),
       });
       const data = (await res.json()) as GenieReply & {error?: string};
       if (!res.ok) throw new Error(data.error ?? 'Request failed');
-      setEngine(data.engine);
-      setTurns((t) => [
-        ...t,
-        {
-          role: 'genie',
-          text: data.message,
-          engine: data.engine,
-          card: data.card ?? null,
-        },
-      ]);
-      // Carry the pending plan + offboard confirmation forward.
-      setPlan(data.plan ?? null);
-      setOffboard(data.offboard ?? null);
       const found = candidateIdFrom(data.message);
-      if (found) setConfirmedCandidateId(found);
+      setGenieState((prev) => ({
+        engine: data.engine,
+        turns: [
+          ...prev.turns,
+          {
+            role: 'genie',
+            text: data.message,
+            engine: data.engine,
+            card: data.card ?? null,
+          },
+        ],
+        // Carry the pending plan + offboard + template-draft state forward.
+        plan: data.plan ?? null,
+        offboard: data.offboard ?? null,
+        templateDraft: data.templateDraft ?? null,
+        confirmedCandidateId: found ?? prev.confirmedCandidateId,
+      }));
     } catch (err) {
-      setTurns((t) => [
-        ...t,
-        {
-          role: 'genie',
-          text: `Something went wrong: ${(err as Error).message}`,
-        },
-      ]);
+      setGenieState((prev) => ({
+        turns: [
+          ...prev.turns,
+          {
+            role: 'genie',
+            text: `Something went wrong: ${(err as Error).message}`,
+          },
+        ],
+      }));
     } finally {
       setBusy(false);
     }
@@ -397,6 +467,10 @@ export function GenieChat({initialName}: {initialName?: string}) {
                   </p>
                   <ul className='genie-help-list'>
                     <li>
+                      <strong>Show the candidates</strong> — “show me the
+                      candidates” lists everyone in the pipeline as a table.
+                    </li>
+                    <li>
                       <strong>Find a candidate</strong> — search by full or
                       partial name, even with a typo. “Nora”, “Alvarez”, “Nora
                       Alverez”.
@@ -433,6 +507,16 @@ export function GenieChat({initialName}: {initialName?: string}) {
                       badge, and provisions email/SSO — each hitting the ledger.
                     </li>
                     <li>
+                      <strong>Revoke a seat</strong> — “revoke Nora&apos;s Figma
+                      seat”. I revoke it for real and credit the recovered spend
+                      to the reclaim view.
+                    </li>
+                    <li>
+                      <strong>Build a template</strong> — “create a template”
+                      and I&apos;ll ask you for the role, tasks, and seats one
+                      at a time, then save it.
+                    </li>
+                    <li>
                       <strong>Offboard someone</strong> — “offboard Quinn
                       Baker”. I show what it reclaims and ask you to confirm
                       before revoking seats or returning hardware.
@@ -462,6 +546,9 @@ export function GenieChat({initialName}: {initialName?: string}) {
                   <ReclaimCardView card={t.card} />
                 )}
                 {t.card?.type === 'status' && <StatusCardView card={t.card} />}
+                {t.card?.type === 'candidates' && (
+                  <CandidateTableView card={t.card} />
+                )}
               </div>
             : <p className='genie-text'>{t.text}</p>}
           </div>
@@ -498,5 +585,68 @@ export function GenieChat({initialName}: {initialName?: string}) {
         </button>
       </form>
     </section>
+  );
+}
+
+/**
+ * Global Genie launcher: a button pinned top-left on every page that pops the
+ * Genie chat open as an overlay. The chat conversation itself lives in the
+ * shared module store (genie-store), so opening/closing the overlay — or
+ * navigating between pages — never restarts the conversation. A full browser
+ * refresh is what resets it.
+ */
+export function GenieLauncher() {
+  const [open, setOpen] = useState(false);
+
+  // Esc closes the overlay.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  return (
+    <>
+      <button
+        type='button'
+        className='genie-launch'
+        aria-haspopup='dialog'
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className='genie-launch-dot' aria-hidden />
+        Genie
+      </button>
+
+      {open && (
+        <div className='genie-overlay' role='presentation'>
+          <div
+            className='genie-overlay-backdrop'
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className='genie-overlay-panel'
+            role='dialog'
+            aria-modal='true'
+            aria-label='Genie chat'
+          >
+            <div className='genie-overlay-bar'>
+              <button
+                type='button'
+                className='genie-overlay-close'
+                aria-label='Close Genie'
+                onClick={() => setOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <GenieChat />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

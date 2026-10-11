@@ -15,10 +15,11 @@ import {
   defaultIdGenerator,
   type Clock,
   type IdGenerator,
-} from "./ids";
-import { assignedSeats } from "./seats";
-import type { Repository } from "./repository";
-import type { License, Task } from "./types";
+} from './ids';
+import {assignedSeats} from './seats';
+import {monthlyCost} from './finance';
+import type {Repository} from './repository';
+import type {License, Task, Team, Template, TemplateTask} from './types';
 
 export interface TemplateServiceOptions {
   idGenerator?: IdGenerator;
@@ -82,7 +83,7 @@ export class TemplateService {
         hireId,
         title: tt.title,
         ownerTeam: tt.ownerTeam,
-        status: "todo",
+        status: 'todo',
         cost: tt.cost,
         costType: tt.costType,
         appId: tt.appId ?? null,
@@ -101,7 +102,8 @@ export class TemplateService {
     for (const appId of appIds) {
       const app = await this.repo.appCatalog.get(appId);
       // Unknown app: fall back to granting active (no pool to enforce).
-      const hasRoom = app ? assignedSeats(app, poolLicenses) < app.seatsOwned : true;
+      const hasRoom =
+        app ? assignedSeats(app, poolLicenses) < app.seatsOwned : true;
 
       const license: License = {
         id: this.nextId(),
@@ -109,7 +111,7 @@ export class TemplateService {
         appId,
         // Granted when there's room; otherwise created as `requested` so it
         // shows in IT's "Seats waiting" queue (holds no seat, no ledger spend).
-        status: hasRoom ? "active" : "requested",
+        status: hasRoom ? 'active' : 'requested',
         grantedAt: hasRoom ? grantedAt : null,
         lastUsedAt: hasRoom ? grantedAt : null,
       };
@@ -119,10 +121,91 @@ export class TemplateService {
       if (hasRoom) {
         licenses.push(created);
       } else if (app) {
-        deferred.push({ appId, appName: app.name });
+        deferred.push({appId, appName: app.name});
       }
     }
 
-    return { tasks, licenses, deferred };
+    return {tasks, licenses, deferred};
   }
+
+  /**
+   * Create a brand-new role template from a role name, a list of plain task
+   * titles, and a list of seat app ids. Persists one `template` row plus a
+   * `template_task` per task + per seat:
+   *   - each plain title becomes a `none`-cost task (owner inferred from the
+   *     title; defaults to IT),
+   *   - each seat app becomes a recurring "Grant <App> seat" task carrying the
+   *     app's monthly cost, so the ledger stays correct when it's instantiated.
+   *
+   * Rejects a duplicate roleName so templates stay 1:1 with a role (the import
+   * flow looks a template up by roleName).
+   */
+  async createTemplate(input: {
+    roleName: string;
+    taskTitles: string[];
+    seatAppIds: string[];
+  }): Promise<{template: Template; templateTasks: TemplateTask[]}> {
+    const roleName = input.roleName.trim();
+    if (!roleName) throw new Error('Template roleName is required');
+
+    const existing = await this.repo.templates.where(
+      (t) => t.roleName.toLowerCase() === roleName.toLowerCase(),
+    );
+    if (existing.length > 0) {
+      throw new Error(`A template for "${roleName}" already exists`);
+    }
+
+    const template = await this.repo.templates.insert({
+      id: this.nextId(),
+      roleName,
+    });
+
+    const created: TemplateTask[] = [];
+
+    // Plain admin/hardware tasks (no app, no recurring cost by default).
+    for (const rawTitle of input.taskTitles) {
+      const title = rawTitle.trim();
+      if (!title) continue;
+      const tt = await this.repo.templateTasks.insert({
+        id: this.nextId(),
+        templateId: template.id,
+        title,
+        ownerTeam: inferOwnerTeam(title),
+        cost: 0,
+        costType: 'none',
+        appId: null,
+      });
+      created.push(tt);
+    }
+
+    // One "Grant <App> seat" recurring task per requested seat.
+    for (const appId of input.seatAppIds) {
+      const app = await this.repo.appCatalog.get(appId);
+      if (!app) continue;
+      const monthly = monthlyCost(app.costPerSeat, app.billing);
+      const tt = await this.repo.templateTasks.insert({
+        id: this.nextId(),
+        templateId: template.id,
+        title: `Grant ${app.name} seat`,
+        ownerTeam: 'it',
+        cost: monthly,
+        costType: 'recurring',
+        appId: app.id,
+      });
+      created.push(tt);
+    }
+
+    return {template, templateTasks: created};
+  }
+}
+
+/** Infer the owning team from a task title keyword; defaults to IT. */
+function inferOwnerTeam(title: string): Team {
+  const t = title.toLowerCase();
+  if (/\b(laptop|monitor|headset|phone|hardware|ship|order)\b/.test(t)) {
+    return 'vendor';
+  }
+  if (/\b(badge|desk|building|office|facilit)\b/.test(t)) return 'facilities';
+  if (/\b(paperwork|benefits|offer|hr|payroll|i-9|w-?4)\b/.test(t)) return 'hr';
+  return 'it';
 }
