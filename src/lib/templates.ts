@@ -107,9 +107,9 @@ export class TemplateService {
         id: this.nextId(),
         hireId,
         appId,
-        // Granted when there's room; otherwise created as pending (requested,
-        // not granted) so it shows in IT's "Seats waiting" queue.
-        status: hasRoom ? "active" : "revoked",
+        // Granted when there's room; otherwise created as `requested` so it
+        // shows in IT's "Seats waiting" queue (holds no seat, no ledger spend).
+        status: hasRoom ? "active" : "requested",
         grantedAt: hasRoom ? grantedAt : null,
         lastUsedAt: hasRoom ? grantedAt : null,
       };

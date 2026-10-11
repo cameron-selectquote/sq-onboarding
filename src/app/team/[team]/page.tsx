@@ -84,10 +84,8 @@ export default async function TeamQueue({
       n: assets.filter((a) => a.catalogId === c.id).length,
     }))
     .filter((c) => c.n > 0);
-  // Requested-but-never-granted seats (seeded as revoked with no grantedAt).
-  const requested = licenses.filter(
-    (l) => l.status === "revoked" && l.grantedAt === null,
-  );
+  // Requested-but-not-granted seats: IT grants them from the queue.
+  const requested = licenses.filter((l) => l.status === "requested");
   const base = `/team/${team}`;
 
   return (

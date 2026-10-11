@@ -18,7 +18,14 @@ export type CostType = 'none' | 'one_time' | 'recurring';
 
 export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'blocked' | 'done';
 
-export type LicenseStatus = 'active' | 'idle' | 'reclaim' | 'revoked';
+/**
+ * License lifecycle.
+ * - `requested`: asked for but not granted (e.g. deferred when a pool was full);
+ *   holds no seat, carries no ledger spend, waits in IT's queue until granted.
+ * - `active`/`idle`/`reclaim`: consuming a seat.
+ * - `revoked`: cancelled/returned; the credit already hit the ledger.
+ */
+export type LicenseStatus = 'requested' | 'active' | 'idle' | 'reclaim' | 'revoked';
 
 export type AssetStatus =
   | 'in_stock'

@@ -19,7 +19,7 @@ import {
   type IdGenerator,
 } from "./ids";
 import type { Repository } from "./repository";
-import type { License } from "./types";
+import type { AppCatalogItem, License } from "./types";
 
 export interface LicenseServiceOptions {
   idGenerator?: IdGenerator;
@@ -67,14 +67,8 @@ export class LicenseService {
     const hire = await this.repo.hires.get(hireId);
     if (!hire) throw new Error(`Hire "${hireId}" not found`);
 
-    const app = await this.repo.appCatalog.get(appId);
-    if (!app) throw new Error(`App "${appId}" not found`);
-
     // Capacity check: assigned (baseline + active/idle/reclaim) must be below owned.
-    const licenses = await this.repo.licenses.list();
-    if (assignedSeats(app, licenses) >= app.seatsOwned) {
-      throw new NoSeatsAvailableError(app.name);
-    }
+    const app = await this.ensureSeatAvailable(appId);
 
     const monthly = monthlyCost(app.costPerSeat, app.billing);
     const now = this.now().toISOString();
@@ -106,8 +100,11 @@ export class LicenseService {
   /** Grant a seat: license -> active, write recurring ledger entry, bump budget. */
   async grant(licenseId: string): Promise<License> {
     const license = await this.requireLicense(licenseId);
-    const app = await this.repo.appCatalog.get(license.appId);
-    if (!app) throw new Error(`App "${license.appId}" not found`);
+
+    // Capacity check: a seat requested while the pool had room must still be
+    // refused if the pool filled up before it was granted. The license being
+    // granted is non-consuming (requested), so it isn't double-counted here.
+    const app = await this.ensureSeatAvailable(license.appId);
 
     const monthly = monthlyCost(app.costPerSeat, app.billing);
 
@@ -156,5 +153,23 @@ export class LicenseService {
     const license = await this.repo.licenses.get(licenseId);
     if (!license) throw new Error(`License "${licenseId}" not found`);
     return license;
+  }
+
+  /**
+   * Look up an app and assert it has a free seat. Shared by `assign` (new seat)
+   * and `grant` (waiting seat): both must refuse a full pool. Because a
+   * `requested` license is non-consuming, granting one isn't counted against
+   * the pool here, so the check reflects true remaining capacity.
+   *
+   * @throws NoSeatsAvailableError when the pool is full.
+   */
+  private async ensureSeatAvailable(appId: string): Promise<AppCatalogItem> {
+    const app = await this.repo.appCatalog.get(appId);
+    if (!app) throw new Error(`App "${appId}" not found`);
+    const licenses = await this.repo.licenses.list();
+    if (assignedSeats(app, licenses) >= app.seatsOwned) {
+      throw new NoSeatsAvailableError(app.name);
+    }
+    return app;
   }
 }

@@ -5,25 +5,25 @@
 > design.md "What's already built". These tasks finish it. Each should leave the
 > build green (`npm test` + `npm run build`).
 
-- [ ] 1. Add explicit `requested` license status
+- [x] 1. Add explicit `requested` license status
   - Add `requested` to `LicenseStatus` in `src/lib/types.ts`; mirror it in
     `schema.sql`'s `license.status` constraint. Announce the contract change.
   - Confirm `assignedSeats` (`src/lib/seats.ts`) still excludes it — `requested`
     must NOT be in `CONSUMING_STATUSES`.
   - _Requirements: 2, 9 — contract impact_
 
-- [ ] 2. Migrate the "waiting seat" convention off `revoked`+`null`
+- [x] 2. Migrate the "waiting seat" convention off `revoked`+`null`
   - `src/lib/templates.ts`: deferred overflow license → `status: "requested"`
     (keep `grantedAt: null`).
   - `src/data/seed.ts`: the three waiting seats (`lic_9`, `lic_10`, `lic_11`) →
     `status: "requested"`; update the explanatory comment.
   - `src/app/team/[team]/page.tsx`: "Seats waiting" filter → `l.status ===
-    "requested"` (drop the `grantedAt === null` test).
+"requested"` (drop the `grantedAt === null` test).
   - Update tests that assert the old value: `tests/templates.test.ts`
     (deferred license is now `"requested"`), and any seed/queue assertions.
   - _Requirements: 5, 6, 10_
 
-- [ ] 3. Enforce pool capacity in `grant()` too, not just `assign()`
+- [x] 3. Enforce pool capacity in `grant()` too, not just `assign()`
   - In `src/lib/licenses.ts` extract `ensureSeatAvailable(appId)` (app lookup +
     `assignedSeats >= seatsOwned` → throw `NoSeatsAvailableError`). Call it from
     both `assign()` and `grant()`, before writing the ledger entry.

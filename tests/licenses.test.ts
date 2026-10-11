@@ -103,3 +103,39 @@ describe("LicenseService.assign", () => {
     expect((await repo.budgets.get("b_it"))!.spent).toBe(0);
   });
 });
+
+describe("LicenseService.grant — capacity", () => {
+  it("refuses to grant a requested seat into a now-full pool", async () => {
+    // 1 seat owned; the pre-seeded idle license (l1) already consumes it.
+    const { repo, licenses } = await setup({ seatsOwned: 1 });
+
+    // A seat requested while there was room, now waiting in the queue.
+    await repo.licenses.insert({
+      id: "req1", hireId: "h1", appId: "github",
+      status: "requested", grantedAt: null, lastUsedAt: null,
+    });
+
+    await expect(licenses.grant("req1")).rejects.toThrow(/No GitHub seats available/);
+
+    // license stays requested, no ledger entry, budget untouched
+    expect((await repo.licenses.get("req1"))!.status).toBe("requested");
+    expect((await repo.ledgerEntries.list()).length).toBe(0);
+    expect((await repo.budgets.get("b_it"))!.spent).toBe(0);
+  });
+
+  it("grants a requested seat when the pool has room", async () => {
+    const { repo, licenses } = await setup({ seatsOwned: 100 });
+
+    await repo.licenses.insert({
+      id: "req1", hireId: "h1", appId: "github",
+      status: "requested", grantedAt: null, lastUsedAt: null,
+    });
+
+    const result = await licenses.grant("req1");
+    expect(result.status).toBe("active");
+
+    const entries = await repo.ledgerEntries.list();
+    expect(entries.some((e) => e.type === "license_grant" && e.refId === "req1")).toBe(true);
+    expect((await repo.budgets.get("b_it"))!.spent).toBe(21);
+  });
+});

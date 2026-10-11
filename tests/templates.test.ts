@@ -68,10 +68,10 @@ describe("TemplateService.instantiateForHire", () => {
     expect(result.licenses).toHaveLength(0);
     expect(result.deferred).toEqual([{ appId: "github", appName: "GitHub" }]);
 
-    // A pending license exists (requested-but-not-granted) for IT's queue.
+    // A requested license exists (asked-for-but-not-granted) for IT's queue.
     const stored = await repo.licenses.where((l) => l.hireId === "h1" && l.appId === "github");
     expect(stored).toHaveLength(1);
-    expect(stored[0]!.status).toBe("revoked");
+    expect(stored[0]!.status).toBe("requested");
     expect(stored[0]!.grantedAt).toBeNull();
   });
 

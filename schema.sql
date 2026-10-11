@@ -7,7 +7,7 @@ create type team            as enum ('hr', 'it', 'vendor', 'facilities', 'financ
 create type billing         as enum ('monthly', 'annual');
 create type cost_type       as enum ('none', 'one_time', 'recurring');
 create type task_status     as enum ('todo', 'in_progress', 'review', 'blocked', 'done');
-create type license_status  as enum ('active', 'idle', 'reclaim', 'revoked');
+create type license_status  as enum ('requested', 'active', 'idle', 'reclaim', 'revoked');
 create type asset_status    as enum ('in_stock', 'assigned', 'in_repair', 'returned', 'retired');
 create type ledger_type     as enum ('license_grant', 'license_revoke', 'asset_purchase', 'asset_return', 'fee');
 

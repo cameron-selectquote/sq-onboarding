@@ -529,8 +529,8 @@ export const seedData: SeedData = {
   tasks: [], // filled from templates below
 
   // Live burn plus something to reclaim: an idle seat, a seat marked for
-  // reclaim, a stale active seat, and a duplicate comms app. Revoked seats with
-  // no grantedAt are requested-but-not-granted — IT grants them from the queue.
+  // reclaim, a stale active seat, and a duplicate comms app. `requested` seats
+  // are asked-for-but-not-granted — IT grants them from the "Seats waiting" queue.
   licenses: [
     {
       id: 'lic_1',
@@ -600,7 +600,7 @@ export const seedData: SeedData = {
       id: 'lic_9',
       hireId: 'hire_4',
       appId: 'gsuite',
-      status: 'revoked',
+      status: 'requested',
       grantedAt: null,
       lastUsedAt: null,
     },
@@ -608,7 +608,7 @@ export const seedData: SeedData = {
       id: 'lic_10',
       hireId: 'hire_5',
       appId: 'github',
-      status: 'revoked',
+      status: 'requested',
       grantedAt: null,
       lastUsedAt: null,
     },
@@ -616,7 +616,7 @@ export const seedData: SeedData = {
       id: 'lic_11',
       hireId: 'hire_5',
       appId: 'slack',
-      status: 'revoked',
+      status: 'requested',
       grantedAt: null,
       lastUsedAt: null,
     },
