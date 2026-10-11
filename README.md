@@ -118,9 +118,9 @@ row counts. **Dev-only:** the route refuses with `404` when
 `NODE_ENV === 'production'`, so it can't touch real data — but it has no other
 auth gate, so don't expose a non-production build to anything you care about.
 
-## Onboarding Genie (Strands Agents)
+## Genie (Strands Agents)
 
-The Onboarding Genie is an AI agent built on the
+Genie is an AI agent built on the
 [Strands Agents SDK](https://strandsagents.com) (`@strands-agents/sdk`). It
 guides HR/managers from a candidate name to a published 30-day onboarding plan.
 Find it at **`/specialist/genie`**.

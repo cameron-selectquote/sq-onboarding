@@ -21,6 +21,8 @@ interface GenieReply {
   engine: 'strands-bedrock' | 'scripted';
   /** Opaque pending plan — the client round-trips it so adjustments persist. */
   plan?: unknown;
+  /** Opaque pending offboard — round-tripped so the yes/no gate persists. */
+  offboard?: unknown;
 }
 
 /** Pull a candidate id out of the Genie's reply so "publish" can target it. */
@@ -40,9 +42,11 @@ export function GenieChat({initialName}: {initialName?: string}) {
     string | null
   >(null);
   const [plan, setPlan] = useState<unknown>(null);
+  const [offboard, setOffboard] = useState<unknown>(null);
   const [engine, setEngine] = useState<'strands-bedrock' | 'scripted' | null>(
     null,
   );
+  const [helpOpen, setHelpOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   // Opening greeting + which engine is live.
@@ -58,7 +62,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
       .catch(() => {
         if (!cancelled)
           setTurns([
-            {role: 'genie', text: 'Hey, who do we want to onboard today?'},
+            {role: 'genie', text: 'Hey, what can I help you with today?'},
           ]);
       });
     return () => {
@@ -100,6 +104,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
           history,
           confirmedCandidateId,
           plan,
+          offboard,
         }),
       });
       const data = (await res.json()) as GenieReply & {error?: string};
@@ -109,8 +114,9 @@ export function GenieChat({initialName}: {initialName?: string}) {
         ...t,
         {role: 'genie', text: data.message, engine: data.engine},
       ]);
-      // Carry the pending plan forward (null once published).
+      // Carry the pending plan + offboard confirmation forward.
       setPlan(data.plan ?? null);
+      setOffboard(data.offboard ?? null);
       const found = candidateIdFrom(data.message);
       if (found) setConfirmedCandidateId(found);
     } catch (err) {
@@ -134,22 +140,108 @@ export function GenieChat({initialName}: {initialName?: string}) {
   }
 
   return (
-    <section className='panel genie' aria-label='Onboarding Genie chat'>
+    <section className='panel genie' aria-label='Genie chat'>
       <div className='panel-head'>
-        <span className='panel-title'>Onboarding Genie</span>
-        {engine && (
-          <span
-            className={
-              engine === 'strands-bedrock' ? 'tag tag-accent-2' : (
-                'tag tag-neutral'
-              )
-            }
-          >
-            {engine === 'strands-bedrock' ?
-              '● Strands + Bedrock'
-            : 'Built-in planner'}
-          </span>
-        )}
+        <span className='panel-title'>Genie</span>
+        <div className='genie-head-right'>
+          {engine && (
+            <span
+              className={
+                engine === 'strands-bedrock' ? 'tag tag-accent-2' : (
+                  'tag tag-neutral'
+                )
+              }
+            >
+              {engine === 'strands-bedrock' ?
+                '● Strands + Bedrock'
+              : 'Built-in planner'}
+            </span>
+          )}
+          <div className='genie-help'>
+            <button
+              type='button'
+              className='genie-help-btn'
+              aria-label='What can Genie do?'
+              aria-expanded={helpOpen}
+              aria-haspopup='dialog'
+              onClick={() => setHelpOpen((o) => !o)}
+            >
+              i
+            </button>
+            {helpOpen && (
+              <>
+                <div
+                  className='genie-help-backdrop'
+                  onClick={() => setHelpOpen(false)}
+                />
+                <div
+                  className='genie-help-pop'
+                  role='dialog'
+                  aria-label='What Genie can do'
+                >
+                  <div className='genie-help-head'>
+                    <span className='genie-help-title'>What I can do</span>
+                    <button
+                      type='button'
+                      className='genie-help-close'
+                      aria-label='Close'
+                      onClick={() => setHelpOpen(false)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <p className='genie-help-lead'>
+                    I help you get things done — like setting someone up end to
+                    end, keeping every seat and asset costed on the live ledger.
+                    Try asking me to:
+                  </p>
+                  <ul className='genie-help-list'>
+                    <li>
+                      <strong>Find a candidate</strong> — search by full or
+                      partial name, even with a typo. “Nora”, “Alvarez”, “Nora
+                      Alverez”.
+                    </li>
+                    <li>
+                      <strong>Build a 30-day plan</strong> — Day 1 essentials,
+                      role &amp; tool access, and 30-day milestones, with the
+                      software seats I&apos;ll grant.
+                    </li>
+                    <li>
+                      <strong>Switch templates</strong> — “use the Designer
+                      template”, “make them an Engineer”.
+                    </li>
+                    <li>
+                      <strong>Adjust seats</strong> — “drop Slack”, “add Jira”,
+                      “she doesn&apos;t need Figma”.
+                    </li>
+                    <li>
+                      <strong>Skip tasks</strong> — “skip the badge”, “no
+                      laptop”, and I won&apos;t run them.
+                    </li>
+                    <li>
+                      <strong>Set the start date</strong> — “she starts March
+                      15” or “start date 2026-03-15”.
+                    </li>
+                    <li>
+                      <strong>Publish &amp; execute</strong> — “publish” creates
+                      the hire, grants seats, orders the laptop, issues the
+                      badge, and provisions email/SSO — each hitting the ledger.
+                    </li>
+                    <li>
+                      <strong>Offboard someone</strong> — “offboard Quinn
+                      Baker”. I show what it reclaims and ask you to confirm
+                      before revoking seats or returning hardware.
+                    </li>
+                  </ul>
+                  <p className='genie-help-foot'>
+                    I never invent candidate data, and I only mark a task done
+                    once it&apos;s actually run.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className='genie-log' role='log' aria-live='polite'>
@@ -182,7 +274,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
         }}
       >
         <label className='sr-only' htmlFor='genie-input'>
-          Message the Onboarding Genie
+          Message Genie
         </label>
         <input
           id='genie-input'
