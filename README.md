@@ -104,9 +104,9 @@ Available endpoints: `POST /api/hires/import`, `GET /api/hires`,
 `GET /api/openapi`, `POST /api/ai/match-template`, `GET /api/genie`,
 `POST /api/genie`.
 
-## Onboarding Genie (Strands Agents)
+## Genie (Strands Agents)
 
-The Onboarding Genie is an AI agent built on the
+Genie is an AI agent built on the
 [Strands Agents SDK](https://strandsagents.com) (`@strands-agents/sdk`). It
 guides HR/managers from a candidate name to a published 30-day onboarding plan.
 Find it at **`/specialist/genie`**.

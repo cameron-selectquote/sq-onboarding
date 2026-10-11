@@ -31,8 +31,9 @@ export default async function GeniePage({
       nav={SPECIALIST_NAV}
       active='/specialist/genie'
       who='Specialist · HR'
+      fill
     >
-      <PageHead eyebrow='AI · Strands Agents' title='Onboarding Genie' />
+      <PageHead eyebrow='AI · Strands Agents' title='Genie' />
       {/* key on the candidate so switching candidates starts a fresh chat */}
       <GenieChat key={candidate ?? 'blank'} initialName={initialName} />
     </Shell>

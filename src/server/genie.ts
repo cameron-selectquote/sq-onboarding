@@ -35,6 +35,7 @@ import {
   type PendingPlan,
 } from '@/lib/plan';
 import type {AppCatalogItem, Candidate} from '@/lib/types';
+import type {Repository} from '@/lib/repository';
 import {getServices} from './store';
 
 /**
@@ -70,23 +71,38 @@ function configureStrandsDebug(): void {
 }
 
 /** The Genie's persona + scripted workflow (from the product brief). */
-export const GENIE_SYSTEM_PROMPT = `You are the Onboarding Genie, an intelligent assistant inside the onboarding workspace. Your goal is to guide HR and managers through setting up new hire onboarding workflows.
+export const GENIE_SYSTEM_PROMPT = `You are Genie, an intelligent assistant inside the workspace. Your goal is to help the team get things done — guiding them through setting up new hires and running the workflows that follow.
 
 PERSONALITY & BEHAVIOR
 - Proactive, concise, and professional with a welcoming tone.
 - Never invent candidate information, roles, or resume details. Rely strictly on the tools provided.
 
 CONVERSATIONAL WORKFLOW
-1. GREETING: Open with "Hey, who do we want to onboard today?"
+1. GREETING: Open with "Hey, what can I help you with today?"
 2. CANDIDATE SEARCH & VERIFICATION: When the user gives a first and last name, call searchCandidateRecords. Present the record clearly (Candidate Name, Role/Title, Hiring Manager, Resume File) and ask "Is this the correct candidate you'd like to onboard today?" If multiple are found, ask the user to pick one. If none, offer to input the role and hiring manager manually.
 3. TASK LIST GENERATION: Once confirmed, generate a 30-day onboarding checklist in three categories: Day 1 Essentials (Docs, Legal, IT Hardware Setup); Role & Tool Access (Permissions, Figma/GitHub/Jira invites); 30-Day Milestones (1-on-1s, team intros, initial training). List the software seats you plan to grant. Then ask "How does this task list look? Would you like to adjust or publish this plan?"
 3a. ADJUSTMENTS: The user may ask to change the plan before publishing — e.g. "she doesn't need Slack", "add Jira", "skip the badge", "use the Designer template", "she starts March 15". Track these: adjust the seat list (appIds) you'll pass to createOnboardingPlan, the roleName, the start date, and note any tasks to skip. Confirm the change and re-show the updated seats, then invite more adjustments or publishing. Never silently ignore an adjustment.
 4. PUBLISH: When the user approves, call createOnboardingPlan with the final roleName and appIds (reflecting every adjustment). Keep the hireId it returns.
 5. EXECUTE: Immediately after publishing, call executeOnboardingTasks with that hireId to actually carry out everything that can be automated — grant software seats, order the laptop, issue the badge, provision email/SSO. If the user asked to leave anything out, pass those as skipKeywords (e.g. ["slack","badge"]) so they're not done. Then confirm with: a direct link to the candidate's onboarding portal, a short summary of what you automated, and a list of the remaining tasks that need a person.
 
-Always use the tools for candidate data, publishing, and executing. Never claim a task is done unless a tool reported it done. Keep replies short.`;
+OFFBOARDING (destructive — handle with care)
+- When the user asks to offboard someone, FIRST call previewOffboarding and show them exactly what will be reclaimed: the software seats (with monthly cost recovered) and the hardware (with residual value credited), plus the totals.
+- Then ask them to confirm, clearly stating this will revoke seats and return hardware. Do NOT call executeOffboarding yet.
+- Only after the user explicitly confirms (e.g. "yes, offboard them") call executeOffboarding with confirmed=true. Never set confirmed=true on your own initiative or from an ambiguous reply. If unsure whether they confirmed, preview again and ask.
 
-export const GENIE_GREETING = 'Hey, who do we want to onboard today?';
+Always use the tools for candidate data, publishing, executing, and offboarding. Never claim a task is done unless a tool reported it done. Keep replies short.`;
+
+export const GENIE_GREETING = [
+  `Hey! I'm Genie. I can help you get things done — just tell me what you need. A few things to try:`,
+  ``,
+  `- **Set someone up** — "Onboard Nora Alvarez" or just a name`,
+  `- **Pick a template** — "Use the Designer template for Sam Rivera"`,
+  `- **Adjust the plan** — "drop Slack", "add Jira", "skip the badge"`,
+  `- **Set a start date** — "she starts March 15"`,
+  `- **Publish & run it** — "publish" grants seats, orders the laptop, issues the badge`,
+  ``,
+  `What can I help you with today?`,
+].join('\n');
 
 /** Default Bedrock model id (Strands default provider). */
 const MODEL_ID =
@@ -105,7 +121,7 @@ export function hasBedrockCreds(): boolean {
 
 /** Build the Genie's Strands tools, bound to the shared services. */
 async function buildTools() {
-  const {candidates, onboarding} = await getServices();
+  const {candidates, onboarding, offboarding, repo} = await getServices();
 
   const searchCandidateRecords = tool({
     name: 'searchCandidateRecords',
@@ -191,7 +207,92 @@ async function buildTools() {
     },
   });
 
-  return [searchCandidateRecords, createOnboardingPlan, executeOnboardingTasks];
+  const previewOffboarding = tool({
+    name: 'previewOffboarding',
+    description:
+      'Read-only. Show what offboarding a hire would reclaim: their active/idle software seats (recurring monthly cost recovered) and assigned hardware (residual value credited back). Changes nothing. ALWAYS call this first and show the user the seats, assets, and totals before any offboarding. Look up the hire id by name via searchCandidateRecords (a published candidate has a hireId) or by the hire name.',
+    inputSchema: z.object({
+      hireName: z
+        .string()
+        .optional()
+        .describe('The hire name to preview offboarding for'),
+      hireId: z.string().optional().describe('The hire id, if known'),
+    }),
+    callback: async ({hireName, hireId}) => {
+      const id = hireId ?? (await resolveHireId(repo, hireName ?? ''));
+      if (!id) return {error: `No hire found for "${hireName ?? hireId}"`};
+      const p = await offboarding.preview(id);
+      return {
+        hireId: p.hireId,
+        hireName: p.hireName,
+        seats: p.seats.map((s) => ({app: s.appName, monthly: s.monthly})),
+        assets: p.assets.map((a) => ({
+          name: a.name,
+          serial: a.serialTag,
+          residual: Math.round(a.residual),
+        })),
+        monthlyRecovered: Math.round(p.monthlyRecovered),
+        oneTimeRecovered: Math.round(p.oneTimeRecovered),
+        nothingToReclaim: p.nothingToReclaim,
+      };
+    },
+  });
+
+  const executeOffboarding = tool({
+    name: 'executeOffboarding',
+    description:
+      "DESTRUCTIVE. Revoke the hire's software seats and return their hardware (recovers spend; writes crediting ledger entries). NEVER call this until you have (1) called previewOffboarding, (2) shown the user exactly what will be reclaimed, and (3) received an explicit yes/confirm to proceed. You MUST pass confirmed=true, which you may only set after the user confirms. If you are not certain the user confirmed, call previewOffboarding instead and ask.",
+    inputSchema: z.object({
+      hireId: z
+        .string()
+        .describe('The hire id to offboard (from previewOffboarding)'),
+      confirmed: z
+        .boolean()
+        .describe(
+          'Must be true, and only after the user explicitly confirmed the destructive action',
+        ),
+    }),
+    callback: async ({hireId, confirmed}) => {
+      if (!confirmed) {
+        return {
+          refused: true,
+          message:
+            'Not confirmed. Show the previewOffboarding result and ask the user to confirm before executing.',
+        };
+      }
+      const r = await offboarding.execute(hireId);
+      return {
+        hireId: r.hireId,
+        hireName: r.hireName,
+        revokedSeats: r.revokedSeatIds.length,
+        returnedAssets: r.returnedAssetIds.length,
+        monthlyRecovered: Math.round(r.monthlyRecovered),
+        oneTimeRecovered: Math.round(r.oneTimeRecovered),
+      };
+    },
+  });
+
+  return [
+    searchCandidateRecords,
+    createOnboardingPlan,
+    executeOnboardingTasks,
+    previewOffboarding,
+    executeOffboarding,
+  ];
+}
+
+/** Resolve a hire id from a name (exact-ish, case-insensitive). */
+async function resolveHireId(
+  repo: Repository,
+  name: string,
+): Promise<string | null> {
+  const q = name.trim().toLowerCase();
+  if (!q) return null;
+  const hires = await repo.hires.list();
+  const exact = hires.find((h) => h.name.toLowerCase() === q);
+  if (exact) return exact.id;
+  const partial = hires.find((h) => h.name.toLowerCase().includes(q));
+  return partial?.id ?? null;
 }
 
 /** True when Strands debug logging is requested via env. */
@@ -227,12 +328,20 @@ export interface GenieReply {
    * The client holds it and sends it back next turn so adjustments persist.
    */
   plan?: PendingPlan | null;
+  /** A previewed-but-unconfirmed offboard, carried across turns. */
+  offboard?: PendingOffboard | null;
 }
 
 /** One prior turn of the conversation, oldest first. */
 export interface GenieHistoryTurn {
   role: 'user' | 'genie';
   text: string;
+}
+
+/** A destructive offboard awaiting the user's explicit confirmation. */
+export interface PendingOffboard {
+  hireId: string;
+  hireName: string;
 }
 
 export interface GenieTurnInput {
@@ -243,6 +352,8 @@ export interface GenieTurnInput {
   confirmedCandidateId?: string | null;
   /** The pending plan from the previous turn, if any. */
   plan?: PendingPlan | null;
+  /** A previewed offboard waiting on a yes/no, carried across turns. */
+  offboard?: PendingOffboard | null;
 }
 
 /**
@@ -254,6 +365,13 @@ export interface GenieTurnInput {
  * gives it memory and lets a bare "yes" land in context.
  */
 export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
+  // Destructive offboarding is gated deterministically server-side, on BOTH
+  // engines, so the confirmation never depends on the model threading a hire
+  // id correctly. If an offboard was previewed last turn, this turn's yes/no
+  // decides it here.
+  const gated = await resolveOffboardConfirmation(input);
+  if (gated) return gated;
+
   if (hasBedrockCreds()) {
     try {
       const agent = await buildGenieAgent();
@@ -263,8 +381,9 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
         message: extractText(result.lastMessage),
         engine: 'strands-bedrock',
         // The live agent manages flow through its tools + conversation; just
-        // echo the plan back so the client keeps it.
+        // echo the plan/offboard state back so the client keeps it.
         plan: input.plan ?? null,
+        offboard: input.offboard ?? null,
       };
     } catch (err) {
       // Fall through to scripted so a model/credential hiccup never dead-ends
@@ -274,11 +393,98 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
         message: `${r.message}\n\n_(Live model unavailable: ${(err as Error).message}. Falling back to the built-in planner.)_`,
         engine: 'scripted',
         plan: r.plan,
+        offboard: r.offboard ?? null,
       };
     }
   }
   const r = await scripted(input);
-  return {message: r.message, engine: 'scripted', plan: r.plan};
+  return {
+    message: r.message,
+    engine: 'scripted',
+    plan: r.plan,
+    offboard: r.offboard ?? null,
+  };
+}
+
+/**
+ * Deterministic offboarding gate, run before either engine so the destructive
+ * action is always controlled by trusted code (never left to the model):
+ *   - pending offboard + "yes"  -> execute (revoke seats, return assets)
+ *   - pending offboard + "no"   -> cancel
+ *   - pending offboard + other  -> re-ask
+ *   - "offboard <name>"         -> read-only preview + set pending (await yes/no)
+ * Returns null when the turn isn't about offboarding, so normal handling runs.
+ */
+async function resolveOffboardConfirmation(
+  input: GenieTurnInput,
+): Promise<GenieReply | null> {
+  const {offboarding, repo} = await getServices();
+  const text = input.message.trim();
+  const lower = text.toLowerCase();
+  const engine: GenieReply['engine'] =
+    hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
+  const pending = input.offboard ?? null;
+
+  const affirmative =
+    /\b(yes|yep|yeah|yup|sure|confirm|do it|go ahead|offboard (?:them|her|him)|proceed)\b/.test(
+      lower,
+    );
+  const negative =
+    /\b(no|cancel|stop|don'?t|do not|nevermind|never mind|abort)\b/.test(lower);
+
+  if (pending) {
+    if (negative) {
+      return {
+        message: `Okay — I won't offboard ${pending.hireName}. Nothing changed.`,
+        engine,
+        offboard: null,
+        plan: input.plan ?? null,
+      };
+    }
+    if (affirmative) {
+      const r = await offboarding.execute(pending.hireId);
+      return {
+        message: renderOffboardResult(r),
+        engine,
+        offboard: null,
+        plan: input.plan ?? null,
+      };
+    }
+    return {
+      message: `Just to confirm — reply **yes** to offboard ${pending.hireName} (revoke seats + return hardware), or **no** to cancel.`,
+      engine,
+      offboard: pending,
+      plan: input.plan ?? null,
+    };
+  }
+
+  const name = parseOffboardIntent(text);
+  if (!name) return null;
+
+  const hireId = await resolveHireId(repo, name);
+  if (!hireId) {
+    return {
+      message: `I couldn't find a current hire named "${name}". Who should I offboard?`,
+      engine,
+      offboard: null,
+      plan: input.plan ?? null,
+    };
+  }
+  const preview = await offboarding.preview(hireId);
+  if (preview.nothingToReclaim) {
+    return {
+      message: `${preview.hireName} has no active seats or assigned hardware to reclaim — nothing to offboard.`,
+      engine,
+      offboard: null,
+      plan: input.plan ?? null,
+    };
+  }
+  return {
+    message: renderOffboardPreview(preview),
+    engine,
+    offboard: {hireId: preview.hireId, hireName: preview.hireName},
+    plan: input.plan ?? null,
+  };
 }
 
 /** Replay prior turns + the new message as Strands MessageData the model reads. */
@@ -333,6 +539,7 @@ function renderChecklist(
 interface ScriptedResult {
   message: string;
   plan: PendingPlan | null;
+  offboard?: PendingOffboard | null;
 }
 
 /**
@@ -352,6 +559,9 @@ async function scripted(input: GenieTurnInput): Promise<ScriptedResult> {
     /\b(publish|approve|looks good|go ahead|ship it|confirm|correct|do it|that'?s right|yes|yep|yeah|yup|sure)\b/.test(
       lower,
     );
+
+  // Note: offboarding (preview + destructive confirm) is handled earlier and
+  // deterministically in resolveOffboardConfirmation, before this runs.
 
   // --- With a plan in play, first try to apply an adjustment ---------------
   if (plan) {
@@ -506,6 +716,82 @@ function renderExecution(
   }
   sections.push(``, `Onboarding portal: ${portalUrl}`);
   return sections.join('\n');
+}
+
+/** Detect an offboarding request and extract the name. Null if not offboarding. */
+function parseOffboardIntent(text: string): string | null {
+  const lower = text.toLowerCase();
+  if (
+    !/\b(offboard|off-board|deprovision|de-provision|terminate|is leaving|leaving the company|last day)\b/.test(
+      lower,
+    )
+  ) {
+    return null;
+  }
+  // "offboard Quinn Baker" / "deprovision Quinn" — take the name after the verb.
+  const m = text.match(
+    /\b(?:offboard|off-board|deprovision|de-provision|terminate)\s+(.+)/i,
+  );
+  if (m) return m[1]!.replace(/[.?!]+$/, '').trim();
+  // "Quinn Baker is leaving" — take the name before the phrase.
+  const m2 = text.match(
+    /^(.+?)\s+(?:is leaving|leaving the company|last day)/i,
+  );
+  if (m2) return m2[1]!.trim();
+  return null;
+}
+
+function money0(n: number): string {
+  return `$${Math.round(n).toLocaleString('en-US')}`;
+}
+
+/** The read-only reclaim preview shown before confirmation. */
+function renderOffboardPreview(p: {
+  hireName: string;
+  seats: {appName: string; monthly: number}[];
+  assets: {name: string; serialTag: string; residual: number}[];
+  monthlyRecovered: number;
+  oneTimeRecovered: number;
+}): string {
+  const lines = [`**Offboarding ${p.hireName} would reclaim:**`, ``];
+  if (p.seats.length) {
+    lines.push(`**Seats to revoke**`, ``);
+    for (const s of p.seats)
+      lines.push(`- ${s.appName} — ${money0(s.monthly)}/mo`);
+    lines.push(``);
+  }
+  if (p.assets.length) {
+    lines.push(`**Hardware to return**`, ``);
+    for (const a of p.assets)
+      lines.push(
+        `- ${a.name} (${a.serialTag}) — ${money0(a.residual)} residual`,
+      );
+    lines.push(``);
+  }
+  lines.push(
+    `**Recovers ${money0(p.monthlyRecovered)}/mo recurring + ${money0(p.oneTimeRecovered)} one-time.**`,
+    ``,
+    `⚠️ This revokes the seats and returns the hardware. Reply **yes** to offboard ${p.hireName}, or **no** to cancel.`,
+  );
+  return lines.join('\n');
+}
+
+/** The summary after a confirmed offboard. */
+function renderOffboardResult(r: {
+  hireName: string;
+  revokedSeatIds: string[];
+  returnedAssetIds: string[];
+  monthlyRecovered: number;
+  oneTimeRecovered: number;
+}): string {
+  return [
+    `**${r.hireName} offboarded.**`,
+    ``,
+    `- Revoked ${r.revokedSeatIds.length} seat(s) — ${money0(r.monthlyRecovered)}/mo recovered`,
+    `- Returned ${r.returnedAssetIds.length} asset(s) — ${money0(r.oneTimeRecovered)} credited back`,
+    ``,
+    `Finance will show the recovered spend on the reclaim view.`,
+  ].join('\n');
 }
 
 interface Adjustment {
