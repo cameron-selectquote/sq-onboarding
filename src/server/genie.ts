@@ -841,6 +841,8 @@ export interface GenieReply {
    * unless the agent is currently paused on a destructive action.
    */
   genieSession?: GenieSession | null;
+  /** A single-seat revoke previewed this turn, awaiting a yes/no next turn. */
+  seatRevoke?: PendingSeatRevoke | null;
   /**
    * An optional structured card to render alongside the message (recovered
    * spend on offboard). Not round-tripped — it's render-only for this turn.
@@ -858,6 +860,15 @@ export interface GenieHistoryTurn {
 export interface PendingOffboard {
   hireId: string;
   hireName: string;
+}
+
+/** A single-seat revoke awaiting the user's explicit confirmation. */
+export interface PendingSeatRevoke {
+  licenseId: string;
+  hireName: string;
+  appName: string;
+  /** Recurring $/mo the revoke would credit back. */
+  monthly: number;
 }
 
 export interface GenieTurnInput {
@@ -890,6 +901,8 @@ export interface GenieTurnInput {
    * human's confirmation and resumes that agent. The client round-trips it.
    */
   genieSession?: GenieSession | null;
+  /** A single-seat revoke previewed last turn, awaiting this turn's yes/no. */
+  seatRevoke?: PendingSeatRevoke | null;
 }
 
 /** Resolve the effective role for a turn, defaulting to admin (full access). */
@@ -920,6 +933,14 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
   // yes/no. Resume the interrupted agent with that answer before anything else.
   if (input.genieSession && hasBedrockCreds()) {
     return resumeInterruptedAgent(input, input.genieSession);
+  }
+
+  // CONFIRM a previewed single-seat revoke before anything else, on BOTH
+  // engines — a removal never runs without an explicit human yes. Runs first so
+  // the yes/no can't be mistaken for a new request.
+  if (may('removeSeat') && input.seatRevoke) {
+    const decided = await resolveRemoveSeat(input);
+    if (decided) return decided;
   }
 
   // The deterministic pre-handlers below run trusted, mutating/cost-bearing
@@ -1622,13 +1643,52 @@ async function resolveListCandidates(
 async function resolveRemoveSeat(
   input: GenieTurnInput,
 ): Promise<GenieReply | null> {
-  const intent = parseRemoveSeatIntent(input.message);
-  if (!intent) return null;
-
   const {repo, licenses: licenseService} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
   const base = {engine, plan: null, offboard: null} as const;
+
+  // CONFIRM STEP: a revoke was previewed last turn — this turn's yes/no decides
+  // it. Revoking a seat is destructive, so it never runs without an explicit
+  // human confirmation (human-in-the-loop), on both engines.
+  const pending = input.seatRevoke ?? null;
+  if (pending) {
+    const decision = classifyConfirmation(input.message);
+    if (decision === 'negative') {
+      return {
+        ...base,
+        seatRevoke: null,
+        message: `Okay — I left ${pending.hireName}'s ${pending.appName} seat in place. Nothing changed.`,
+      };
+    }
+    if (decision === 'affirmative') {
+      // Re-check the license is still live before revoking (it may have changed
+      // between turns), so we never act on a stale confirmation.
+      const license = await repo.licenses.get(pending.licenseId);
+      if (!license || license.status === 'revoked') {
+        return {
+          ...base,
+          seatRevoke: null,
+          message: `${pending.hireName}'s ${pending.appName} seat is no longer active — nothing to revoke.`,
+        };
+      }
+      await licenseService.revoke(pending.licenseId);
+      return {
+        ...base,
+        seatRevoke: null,
+        message: `Revoked ${pending.hireName}'s **${pending.appName}** seat. That credits ${money0(pending.monthly)}/mo back — it'll show on the finance reclaim view.`,
+      };
+    }
+    // Unclear — re-ask rather than guess on a destructive action.
+    return {
+      ...base,
+      seatRevoke: pending,
+      message: `Just to confirm — reply **yes** to revoke ${pending.hireName}'s ${pending.appName} seat (${money0(pending.monthly)}/mo), or **no** to keep it.`,
+    };
+  }
+
+  const intent = parseRemoveSeatIntent(input.message);
+  if (!intent) return null;
 
   const apps = await repo.appCatalog.list();
   const appId = resolveSeatRef(intent.appRef, apps);
@@ -1674,12 +1734,21 @@ async function resolveRemoveSeat(
     };
   }
 
+  // PREVIEW STEP: do NOT revoke yet. Show what will happen and ask for an
+  // explicit yes/no; the revoke runs next turn only on an affirmative.
   const monthly = monthlyCost(app.costPerSeat, app.billing);
-  await licenseService.revoke(license.id);
   return {
     ...base,
+    seatRevoke: {
+      licenseId: license.id,
+      hireName: lookup.name,
+      appName: app.name,
+      monthly,
+    },
     message: [
-      `Revoked ${lookup.name}'s **${app.name}** seat. That credits ${money0(monthly)}/mo back — it'll show on the finance reclaim view.`,
+      `Revoking ${lookup.name}'s **${app.name}** seat credits ${money0(monthly)}/mo back.`,
+      ``,
+      `Heads up: this frees the seat. Reply **yes** to revoke it, or **no** to keep it.`,
     ].join('\n'),
   };
 }

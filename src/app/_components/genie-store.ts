@@ -34,6 +34,8 @@ export interface GenieState {
   templateDraft: unknown;
   /** Paused live-agent session awaiting a human-in-the-loop confirmation. */
   genieSession: unknown;
+  /** A single-seat revoke previewed last turn, awaiting a yes/no. */
+  seatRevoke: unknown;
   engine: 'strands-bedrock' | 'scripted' | null;
 }
 
@@ -46,6 +48,7 @@ function initialState(): GenieState {
     offboard: null,
     templateDraft: null,
     genieSession: null,
+    seatRevoke: null,
     engine: null,
   };
 }

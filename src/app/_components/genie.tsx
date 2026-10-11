@@ -103,12 +103,45 @@ interface GenieReply {
   templateDraft?: unknown;
   /** Opaque paused human-in-the-loop session — round-tripped across turns. */
   genieSession?: unknown;
+  /** Opaque pending single-seat revoke — round-tripped across turns. */
+  seatRevoke?: unknown;
   /** Optional structured card to render alongside the message (render-only). */
   card?: GenieCard | null;
 }
 
 const money0 = (n: number): string =>
   `$${Math.round(n).toLocaleString('en-US')}`;
+
+/**
+ * True when a Genie turn's text is (or contains) a welcome brief, so we can
+ * offer a "Send email" action under it. Matches both the scripted brief
+ * ("Welcome brief for <name>") and the live agent's phrasing
+ * ("Welcome brief to send <name>:").
+ */
+function hasWelcomeBrief(text: string): boolean {
+  return /welcome brief/i.test(text);
+}
+
+/**
+ * A demo "Send email" button for a welcome brief. It doesn't actually send —
+ * it just flips to a confirmed state so the flow reads end-to-end in the demo.
+ */
+function SendBriefEmail() {
+  const [sent, setSent] = useState(false);
+  return (
+    <div className='brief-actions'>
+      <button
+        type='button'
+        className={`btn btn-primary brief-send${sent ? ' is-sent' : ''}`}
+        onClick={() => setSent(true)}
+        disabled={sent}
+        aria-live='polite'
+      >
+        {sent ? '✓ Email sent' : '✉ Send email'}
+      </button>
+    </div>
+  );
+}
 
 /** Visual recovered-spend panel for the offboard preview/result. */
 function ReclaimCardView({card}: {card: ReclaimCard}) {
@@ -497,6 +530,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
           offboard: snapshot.offboard,
           templateDraft: snapshot.templateDraft,
           genieSession: snapshot.genieSession,
+          seatRevoke: snapshot.seatRevoke,
         }),
       });
       const data = (await res.json()) as GenieReply & {error?: string};
@@ -519,6 +553,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
         offboard: data.offboard ?? null,
         templateDraft: data.templateDraft ?? null,
         genieSession: data.genieSession ?? null,
+        seatRevoke: data.seatRevoke ?? null,
         confirmedCandidateId: found ?? prev.confirmedCandidateId,
       }));
     } catch (err) {
@@ -687,6 +722,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
                   <TemplateTableView card={t.card} />
                 )}
                 {t.card?.type === 'hitl' && <HitlCardView card={t.card} />}
+                {hasWelcomeBrief(t.text) && <SendBriefEmail />}
               </div>
             : <p className='genie-text'>{t.text}</p>}
           </div>

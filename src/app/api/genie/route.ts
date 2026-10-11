@@ -34,6 +34,7 @@ export async function POST(req: Request) {
     offboard?: unknown;
     templateDraft?: unknown;
     genieSession?: unknown;
+    seatRevoke?: unknown;
   };
   if (!body.message || !body.message.trim()) {
     return NextResponse.json({error: 'message is required'}, {status: 400});
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
         (body.templateDraft as GenieTurnInput['templateDraft']) ?? null,
       genieSession:
         (body.genieSession as GenieTurnInput['genieSession']) ?? null,
+      seatRevoke: (body.seatRevoke as GenieTurnInput['seatRevoke']) ?? null,
     });
     return NextResponse.json(reply);
   } catch (err) {
