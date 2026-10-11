@@ -428,6 +428,37 @@ export interface BvAReport {
   projectedVariance: number;
   /** First month key where cumulative (actual or forecast) exceeds budget, or null. */
   crossoverMonth: string | null;
+  /** Forecast months remaining in the quarter after the current month. */
+  remainingMonths: number;
+}
+
+export interface ReclaimImpact {
+  /** Monthly recurring spend currently reclaimable. */
+  reclaimableMonthly: number;
+  /** Its effect on the quarter-end forecast = reclaimableMonthly × remainingMonths. */
+  quarterSavings: number;
+  /** Projected end-of-quarter variance if the reclaimable spend is recovered now. */
+  projectedVarianceAfter: number;
+  /** True when reclaiming the available seats brings the quarter back under budget. */
+  bringsUnderBudget: boolean;
+}
+
+/**
+ * How reclaiming idle/flagged seats changes the quarter-end budget picture.
+ * A reclaimed seat removes recurring spend, so its benefit compounds over the
+ * remaining months: `reclaimableMonthly × remainingMonths`. This is the lever
+ * that turns a projected overage back into headroom — the forecast ↔ reclaim
+ * loop.
+ */
+export function reclaimImpact(bva: BvAReport, reclaimableMonthly: number): ReclaimImpact {
+  const quarterSavings = reclaimableMonthly * bva.remainingMonths;
+  const projectedVarianceAfter = bva.projectedVariance - quarterSavings;
+  return {
+    reclaimableMonthly,
+    quarterSavings,
+    projectedVarianceAfter,
+    bringsUnderBudget: bva.projectedVariance > 0 && projectedVarianceAfter <= 0,
+  };
 }
 
 /**
@@ -509,6 +540,7 @@ export function buildBvA(input: {
     varianceToDate: actualToDate - budgetToDate,
     projectedVariance: projectedCumulative - input.budgetLimit,
     crossoverMonth,
+    remainingMonths: 3 - monthsElapsed,
   };
 }
 

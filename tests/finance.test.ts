@@ -11,6 +11,7 @@ import {
   isOverspent,
   quarterLabel,
   quarterMonths,
+  reclaimImpact,
   monthlyCost,
   monthlySpend,
   monthOverMonth,
@@ -21,6 +22,7 @@ import {
   reclaimable,
   residualValue,
 } from "@/lib/finance";
+import type { BvAReport } from "@/lib/finance";
 import type {
   AppCatalogItem,
   Asset,
@@ -371,6 +373,15 @@ describe("buildBvA", () => {
     expect(bva.crossoverMonth).toBeNull();        // never exceeds 3000
   });
 
+  it("reports remaining forecast months in the quarter", () => {
+    // asOf mid-Feb -> Jan+Feb elapsed, Mar remaining = 1
+    const bva = buildBvA({ ledgerEntries: [], budgetLimit: 3000, monthlyRecurringForecast: 100, asOf: new Date("2026-02-15T00:00:00Z") });
+    expect(bva.remainingMonths).toBe(1);
+    // asOf early Jan -> only Jan elapsed, Feb+Mar remaining = 2
+    const bva2 = buildBvA({ ledgerEntries: [], budgetLimit: 3000, monthlyRecurringForecast: 100, asOf: new Date("2026-01-05T00:00:00Z") });
+    expect(bva2.remainingMonths).toBe(2);
+  });
+
   it("flags the crossover month when the line breaches the budget", () => {
     const entries = [
       entry(2800, "one_time", "2026-01-10T00:00:00Z"), // Jan already near ceiling
@@ -385,6 +396,42 @@ describe("buildBvA", () => {
     // Jan=2800 (under), Feb=3100 (over) -> crossover in Feb
     expect(bva.crossoverMonth).toBe("2026-02");
     expect(bva.projectedVariance).toBeGreaterThan(0); // projected over budget
+  });
+});
+
+describe("reclaimImpact", () => {
+  const bvaWith = (projectedVariance: number, remainingMonths: number): BvAReport => ({
+    quarter: "2026-Q1",
+    months: [],
+    budget: 3000,
+    actualToDate: 0,
+    projectedEndOfQuarter: 3000 + projectedVariance,
+    budgetToDate: 0,
+    varianceToDate: 0,
+    projectedVariance,
+    crossoverMonth: null,
+    remainingMonths,
+  });
+
+  it("compounds monthly reclaimable over remaining months and clears the overage", () => {
+    // projected $150 over, 2 months left, $100/mo reclaimable -> saves $200 -> under
+    const impact = reclaimImpact(bvaWith(150, 2), 100);
+    expect(impact.quarterSavings).toBe(200);
+    expect(impact.projectedVarianceAfter).toBe(-50);
+    expect(impact.bringsUnderBudget).toBe(true);
+  });
+
+  it("does not clear the overage when reclaim is too small", () => {
+    // projected $500 over, 1 month left, $100/mo reclaimable -> saves $100 -> still over
+    const impact = reclaimImpact(bvaWith(500, 1), 100);
+    expect(impact.quarterSavings).toBe(100);
+    expect(impact.projectedVarianceAfter).toBe(400);
+    expect(impact.bringsUnderBudget).toBe(false);
+  });
+
+  it("is not 'brings under budget' when already under", () => {
+    const impact = reclaimImpact(bvaWith(-200, 2), 100);
+    expect(impact.bringsUnderBudget).toBe(false);
   });
 });
 
