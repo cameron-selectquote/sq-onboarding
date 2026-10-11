@@ -35,11 +35,13 @@ export default async function FinanceReclaim() {
       <div className="banner">
         <div className="banner-text">
           <span style={{ fontSize: 13 }}>Recoverable spend</span>
-          <span className="banner-value">{money(Math.round(breakdown.annual))}/yr</span>
+          {/* Annualize the exact $/mo shown below (× 12) so the two figures can
+              never drift and the ×12 relationship is explicit for the reader. */}
+          <span className="banner-value">{money(Math.round(recoverable * 12))}/yr</span>
           <span style={{ fontSize: 14 }}>
             {breakdown.seats === 0
               ? "Nothing to reclaim. Nice."
-              : `${money(Math.round(recoverable))}/mo across ${breakdown.seats} seats${
+              : `${money(Math.round(recoverable))}/mo × 12 across ${breakdown.seats} seats${
                   overageCoverage !== null ? ` · covers ${overageCoverage}% of the ${bva.quarter} overage` : ""
                 }`}
           </span>
