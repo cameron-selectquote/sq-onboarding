@@ -9,6 +9,7 @@ import {
   financeSummary,
   forecastBurn,
   isOverspent,
+  financeHeroState,
   quarterLabel,
   quarterMonths,
   rangeStart,
@@ -441,6 +442,71 @@ describe("reclaimImpact", () => {
   it("is not 'brings under budget' when already under", () => {
     const impact = reclaimImpact(bvaWith(-200, 2), 100);
     expect(impact.bringsUnderBudget).toBe(false);
+  });
+});
+
+describe("financeHeroState", () => {
+  const bvaWith = (projectedVariance: number, remainingMonths: number): BvAReport => ({
+    quarter: "2026-Q1",
+    months: [],
+    budget: 3000,
+    actualToDate: 0,
+    projectedEndOfQuarter: 3000 + projectedVariance,
+    budgetToDate: 0,
+    varianceToDate: 0,
+    projectedVariance,
+    crossoverMonth: null,
+    remainingMonths,
+  });
+
+  it("is 'overage' with bringsUnderBudget when reclaim clears the projected overage", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100)); // saves 200 -> under
+    expect(state.kind).toBe("overage");
+    if (state.kind !== "overage") throw new Error("expected overage");
+    expect(state.bringsUnderBudget).toBe(true);
+    expect(state.projectedVariance).toBe(150);
+    expect(state.quarterSavings).toBe(200);
+    expect(state.projectedVarianceAfter).toBe(-50);
+  });
+
+  it("is 'overage' without bringsUnderBudget when reclaim only trims it", () => {
+    const bva = bvaWith(500, 1);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100)); // saves 100 -> still over
+    expect(state.kind).toBe("overage");
+    if (state.kind !== "overage") throw new Error("expected overage");
+    expect(state.bringsUnderBudget).toBe(false);
+    expect(state.projectedVarianceAfter).toBe(400);
+  });
+
+  it("is 'healthy' (under budget) when projected under, carrying the amount under", () => {
+    const bva = bvaWith(-200, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100));
+    expect(state.kind).toBe("healthy");
+    if (state.kind !== "healthy") throw new Error("expected healthy");
+    expect(state.amount).toBe(200);
+    expect(state.overBudget).toBe(false);
+  });
+
+  it("is 'healthy' (no CTA) when projected over but nothing is reclaimable", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 0)); // nothing reclaimable
+    expect(state.kind).toBe("healthy");
+    if (state.kind !== "healthy") throw new Error("expected healthy");
+    expect(state.amount).toBe(150);
+    expect(state.overBudget).toBe(true);
+  });
+
+  it("is 'onplan' when the projected variance rounds to $0 and nothing is reclaimable", () => {
+    const bva = bvaWith(0.4, 2); // +$0.40 rounds to $0; not an actionable overage
+    const state = financeHeroState(bva, reclaimImpact(bva, 0));
+    expect(state.kind).toBe("onplan");
+  });
+
+  it("is 'onplan' when exactly on budget", () => {
+    const bva = bvaWith(0, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100));
+    expect(state.kind).toBe("onplan");
   });
 });
 

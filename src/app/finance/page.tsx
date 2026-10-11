@@ -1,8 +1,9 @@
 import { getServices } from "@/server/store";
 import { getBudgetVsActual, getFinanceSummary, getReclaimQueue } from "@/server/queries";
-import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, rangeStart, recurringAddedSince, type FinanceRange } from "@/lib/finance";
+import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, financeHeroState, rangeStart, recurringAddedSince, type FinanceRange } from "@/lib/finance";
 import { sum } from "@/lib/ledger";
 import { Kpi, Meter, PageHead, SegLinks, Shell } from "../_components/Shell";
+import { ReclaimButton } from "../_components/actions";
 import { money, teamLabel, timeAgo } from "../_components/format";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,13 @@ export default async function FinanceOverview({
   ]);
   const { bva, reclaim: bvaReclaim } = bvaResult;
   const hireById = new Map(hires.map((h) => [h.id, h]));
+
+  // Hero banner: current-quarter forecast → reclaim loop. Driven by `bva` +
+  // `bvaReclaim` (not the ?range= picker). The CTA flags the FULL reclaimable
+  // set — identical to the finance reclaim page's "Reclaim all" — so the
+  // headline $/mo figure and the action can't disagree.
+  const hero = financeHeroState(bva, bvaReclaim);
+  const reclaimableLicenseIds = reclaim.rows.flatMap((r) => r.licenseIds);
 
   // Month-granularity window ending at the current month. Filtered entries drive
   // the historical panels (burn trend + deltas, Total spend, Avg cost per hire,
@@ -77,6 +85,48 @@ export default async function FinanceOverview({
 
   return (
     <Shell active="/finance">
+      <div className="banner">
+        {hero.kind === "overage" ? (
+          <>
+            <div className="banner-text">
+              <span style={{ fontSize: 13 }}>Forecast → reclaim · {bva.quarter}</span>
+              <span className="banner-value">
+                {money(Math.round(hero.projectedVariance))} over
+              </span>
+              <span style={{ fontSize: 14 }}>
+                {`Projected ${money(Math.round(hero.projectedVariance))} over the ${money(hero.budget)} budget this quarter${
+                  hero.crossoverMonth ? `, crossing the line in ${monthLabel(hero.crossoverMonth)}` : ""
+                }. `}
+                {hero.bringsUnderBudget
+                  ? `Reclaim ${money(Math.round(hero.reclaimableMonthly))}/mo of idle seats to recover ${money(Math.round(hero.quarterSavings))} this quarter — back under budget with ${money(Math.abs(Math.round(hero.projectedVarianceAfter)))} to spare.`
+                  : `Reclaim ${money(Math.round(hero.reclaimableMonthly))}/mo of idle seats to recover ${money(Math.round(hero.quarterSavings))} this quarter, trimming the overage to ${money(Math.round(hero.projectedVarianceAfter))}.`}
+              </span>
+            </div>
+            <ReclaimButton
+              className="btn btn-on-color"
+              createdByTeam="finance"
+              label="Fix the overage"
+              licenseIds={reclaimableLicenseIds}
+            />
+          </>
+        ) : (
+          <div className="banner-text">
+            <span style={{ fontSize: 13 }}>Forecast · {bva.quarter}</span>
+            <span className="banner-value">
+              {hero.kind === "healthy"
+                ? `${money(Math.round(hero.amount))} ${hero.overBudget ? "over" : "under"}`
+                : "On plan"}
+            </span>
+            <span style={{ fontSize: 14 }}>
+              {hero.kind === "healthy"
+                ? hero.overBudget
+                  ? `Projected ${money(Math.round(hero.amount))} over budget this quarter — no idle seats to reclaim right now.`
+                  : `On track — projected ${money(Math.round(hero.amount))} under budget this quarter.`
+                : "On plan — spend is tracking the budget this quarter."}
+            </span>
+          </div>
+        )}
+      </div>
       <PageHead eyebrow={`${periodLabel} · onboarding spend`} title="Where the money's going" />
       <div>
         <SegLinks
@@ -138,18 +188,6 @@ export default async function FinanceOverview({
             : `On the current run-rate, spend is projected to finish ${money(Math.abs(Math.round(bva.projectedVariance)))} under the ${money(bva.budget)} budget.`}
         </span>
         <span className="meter-note">Always the current quarter — not scoped to the selected range.</span>
-        {bva.projectedVariance > 0 && bvaReclaim.reclaimableMonthly > 0 && (
-          <div
-            className={bvaReclaim.bringsUnderBudget ? "banner" : undefined}
-            style={bvaReclaim.bringsUnderBudget ? { marginTop: 4 } : { marginTop: 4 }}
-          >
-            <span className="meter-note">
-              {bvaReclaim.bringsUnderBudget
-                ? `Reclaim the ${money(Math.round(bvaReclaim.reclaimableMonthly))}/mo of idle seats and you recover ${money(Math.round(bvaReclaim.quarterSavings))} this quarter — back under budget with ${money(Math.abs(Math.round(bvaReclaim.projectedVarianceAfter)))} to spare.`
-                : `Reclaiming the ${money(Math.round(bvaReclaim.reclaimableMonthly))}/mo of idle seats recovers ${money(Math.round(bvaReclaim.quarterSavings))} this quarter, trimming the overage to ${money(Math.round(bvaReclaim.projectedVarianceAfter))}.`}
-            </span>
-          </div>
-        )}
         {bva.months.map((m) => {
           const value = m.actual ?? m.forecast ?? 0;
           const isForecast = m.actual === null;

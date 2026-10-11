@@ -451,6 +451,58 @@ export function reclaimImpact(bva: BvAReport, reclaimableMonthly: number): Recla
 }
 
 /**
+ * Which state the finance hero banner shows, derived purely from the BvA report
+ * and its reclaim impact. Computes NO money — it only selects a state and
+ * surfaces numbers that already live on `bva`/`reclaim`, so the banner can never
+ * disagree with the Budget-vs-Actual panel or the reclaim page.
+ *
+ * - `overage`:  projected over budget AND seats are reclaimable — headline the
+ *               forecast → reclaim loop with a "Fix the overage" CTA.
+ * - `healthy`:  no actionable overage (projected under budget, or projected over
+ *               but with nothing reclaimable), with the rounded variance away
+ *               from $0 — a calm one-liner. `overBudget` tells the view whether
+ *               to word it as "$N under" (headroom) or "$N over, no idle seats
+ *               to reclaim" so the copy never contradicts the sign.
+ * - `onplan`:   projected variance rounds to $0 — neutral "on plan" one-liner.
+ */
+export type FinanceHeroState =
+  | {
+      kind: "overage";
+      projectedVariance: number;
+      budget: number;
+      crossoverMonth: string | null;
+      reclaimableMonthly: number;
+      quarterSavings: number;
+      projectedVarianceAfter: number;
+      bringsUnderBudget: boolean;
+    }
+  | { kind: "healthy"; amount: number; overBudget: boolean }
+  | { kind: "onplan" };
+
+export function financeHeroState(bva: BvAReport, reclaim: ReclaimImpact): FinanceHeroState {
+  if (bva.projectedVariance > 0 && reclaim.reclaimableMonthly > 0) {
+    return {
+      kind: "overage",
+      projectedVariance: bva.projectedVariance,
+      budget: bva.budget,
+      crossoverMonth: bva.crossoverMonth,
+      reclaimableMonthly: reclaim.reclaimableMonthly,
+      quarterSavings: reclaim.quarterSavings,
+      projectedVarianceAfter: reclaim.projectedVarianceAfter,
+      bringsUnderBudget: reclaim.bringsUnderBudget,
+    };
+  }
+  if (Math.round(bva.projectedVariance) === 0) {
+    return { kind: "onplan" };
+  }
+  return {
+    kind: "healthy",
+    amount: Math.abs(bva.projectedVariance),
+    overBudget: bva.projectedVariance > 0,
+  };
+}
+
+/**
  * Budget vs Actual vs Forecast for the quarter containing `asOf`.
  *
  * - Actual: cumulative *total* spend (recurring + one-time), reset at quarter
