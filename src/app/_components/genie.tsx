@@ -55,7 +55,22 @@ interface CandidateTableCard {
   }[];
 }
 
-type GenieCard = ReclaimCard | StatusCard | CandidateTableCard;
+/** All templates with the tasks + seats each applies, rendered as a card. */
+interface TemplateTableCard {
+  type: 'templates';
+  templates: {
+    id: string;
+    roleName: string;
+    tasks: {title: string; detail: string}[];
+    monthlyRecurring: number;
+  }[];
+}
+
+type GenieCard =
+  | ReclaimCard
+  | StatusCard
+  | CandidateTableCard
+  | TemplateTableCard;
 
 interface ChatTurn {
   role: 'genie' | 'user';
@@ -270,6 +285,42 @@ function CandidateTableView({card}: {card: CandidateTableCard}) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Read-only list of templates with the tasks + seats each one applies. */
+function TemplateTableView({card}: {card: TemplateTableCard}) {
+  if (card.templates.length === 0) return null;
+  return (
+    <div className='tpl-card' role='group'>
+      {card.templates.map((t) => (
+        <div key={t.id} className='tpl-item'>
+          <div className='tpl-item-head'>
+            <span className='tpl-item-title'>{t.roleName}</span>
+            {t.monthlyRecurring > 0 && (
+              <span className='tag tag-neutral'>
+                {money0(t.monthlyRecurring)}/mo
+              </span>
+            )}
+          </div>
+          {t.tasks.length === 0 ?
+            <span className='muted' style={{fontSize: 13}}>
+              No tasks defined
+            </span>
+          : <ul className='tpl-task-list'>
+              {t.tasks.map((task, i) => (
+                <li key={i}>
+                  {task.title}
+                  {task.detail && (
+                    <span className='tpl-task-detail'> — {task.detail}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          }
+        </div>
+      ))}
     </div>
   );
 }
@@ -562,6 +613,9 @@ export function GenieChat({initialName}: {initialName?: string}) {
                 {t.card?.type === 'status' && <StatusCardView card={t.card} />}
                 {t.card?.type === 'candidates' && (
                   <CandidateTableView card={t.card} />
+                )}
+                {t.card?.type === 'templates' && (
+                  <TemplateTableView card={t.card} />
                 )}
               </div>
             : <p className='genie-text'>{t.text}</p>}

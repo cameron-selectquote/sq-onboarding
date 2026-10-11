@@ -2,6 +2,7 @@ import {
   classifyConfirmation,
   parseCreateTemplateIntent,
   parseListCandidatesIntent,
+  parseListTemplatesIntent,
   parseOffboardIntent,
   parseRemoveSeatIntent,
   parseViewIntent,
@@ -189,5 +190,39 @@ describe('parseCreateTemplateIntent', () => {
     expect(parseCreateTemplateIntent('use the Designer template')).toBe(false);
     expect(parseCreateTemplateIntent('onboard Nora')).toBe(false);
     expect(parseCreateTemplateIntent('create a plan')).toBe(false);
+  });
+});
+
+describe('parseListTemplatesIntent', () => {
+  it('matches list/view-templates requests', () => {
+    for (const t of [
+      'show me the templates',
+      'list templates',
+      'what templates do we have',
+      'see the role templates',
+      'view all templates',
+    ]) {
+      expect(parseListTemplatesIntent(t)).toBe(true);
+    }
+  });
+
+  it('does not match create-template or unrelated messages', () => {
+    // A create request must still start the builder, not the list.
+    expect(parseListTemplatesIntent('create a template')).toBe(false);
+    expect(parseListTemplatesIntent('build a new template')).toBe(false);
+    expect(parseListTemplatesIntent('onboard Nora')).toBe(false);
+    expect(parseListTemplatesIntent('show me the candidates')).toBe(false);
+  });
+
+  it('list and create intents are mutually exclusive', () => {
+    for (const t of [
+      'show me the templates',
+      'create a template',
+      'use the Designer template',
+    ]) {
+      expect(parseListTemplatesIntent(t) && parseCreateTemplateIntent(t)).toBe(
+        false,
+      );
+    }
   });
 });

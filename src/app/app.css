@@ -1212,6 +1212,44 @@ a.seg-opt[aria-current='page'] {
   border-bottom: 0;
 }
 
+/* — templates list inside a Genie bubble ("show me the templates") — */
+.tpl-card {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tpl-item {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tpl-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.tpl-item-title {
+  font-family: var(--font-heading);
+  font-size: 15px;
+}
+.tpl-task-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+.tpl-task-detail {
+  color: var(--color-neutral-700);
+}
+
 /* — rendered markdown inside a Genie bubble — */
 .md {
   display: flex;

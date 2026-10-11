@@ -40,6 +40,7 @@ import {
   classifyConfirmation,
   parseCreateTemplateIntent,
   parseListCandidatesIntent,
+  parseListTemplatesIntent,
   parseOffboardIntent,
   parseRemoveSeatIntent,
   parseViewIntent,
@@ -718,7 +719,25 @@ export interface CandidateTableCard {
   }[];
 }
 
-export type GenieCard = ReclaimCard | StatusCard | CandidateTableCard;
+/**
+ * All onboarding templates with the tasks + seats each one applies, rendered as
+ * a card so an admin can see what's on offer ("show me the templates").
+ */
+export interface TemplateTableCard {
+  type: 'templates';
+  templates: {
+    id: string;
+    roleName: string;
+    tasks: {title: string; detail: string}[];
+    monthlyRecurring: number;
+  }[];
+}
+
+export type GenieCard =
+  | ReclaimCard
+  | StatusCard
+  | CandidateTableCard
+  | TemplateTableCard;
 
 /**
  * An in-progress new-template build, carried across turns. The Genie asks for
@@ -828,6 +847,13 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
   if (may('templateBuilder')) {
     const templating = await resolveTemplateBuilder(input);
     if (templating) return templating;
+  }
+
+  // "show me the templates" -> a read-only card of every role template with the
+  // tasks + seats it applies. Available to the role that can build templates.
+  if (may('listTemplates') && !input.templateDraft) {
+    const templates = await resolveListTemplates(input);
+    if (templates) return templates;
   }
 
   // Destructive offboarding is gated deterministically server-side, on BOTH
@@ -1052,6 +1078,69 @@ async function resolveViewRequest(
   return {
     ...base,
     message: `I couldn't find anyone named "${name}" to pull up. Try a different spelling, or a first or last name.`,
+  };
+}
+
+/**
+ * Deterministic "show me the templates" handler. Lists every onboarding
+ * template with the tasks + seats it applies, as a card. Read-only. Returns
+ * null when the message isn't a list-templates request.
+ */
+async function resolveListTemplates(
+  input: GenieTurnInput,
+): Promise<GenieReply | null> {
+  if (!parseListTemplatesIntent(input.message)) return null;
+
+  const {repo} = await getServices();
+  const engine: GenieReply['engine'] =
+    hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
+  const base = {engine, plan: null, offboard: null} as const;
+
+  const [templates, templateTasks, apps] = await Promise.all([
+    repo.templates.list(),
+    repo.templateTasks.list(),
+    repo.appCatalog.list(),
+  ]);
+
+  if (templates.length === 0) {
+    return {
+      ...base,
+      message: `There are no templates yet. Say "create a template" and I'll build one with you.`,
+    };
+  }
+
+  const appNameById = new Map(apps.map((a) => [a.id, a.name]));
+  const sorted = [...templates].sort((a, b) =>
+    a.roleName.localeCompare(b.roleName),
+  );
+
+  const cards = sorted.map((t) => {
+    const tasks = templateTasks.filter((tt) => tt.templateId === t.id);
+    let monthlyRecurring = 0;
+    const taskRows = tasks.map((tt) => {
+      if (tt.costType === 'recurring') monthlyRecurring += tt.cost;
+      const app = tt.appId ? appNameById.get(tt.appId) : null;
+      const cost =
+        tt.costType === 'recurring' ? `${money0(tt.cost)}/mo`
+        : tt.costType === 'one_time' ? money0(tt.cost)
+        : '';
+      const detail = [app ? `grants ${app}` : '', cost]
+        .filter(Boolean)
+        .join(' · ');
+      return {title: tt.title, detail};
+    });
+    return {
+      id: t.id,
+      roleName: t.roleName,
+      tasks: taskRows,
+      monthlyRecurring,
+    };
+  });
+
+  return {
+    ...base,
+    message: `We have ${templates.length} onboarding template${templates.length === 1 ? '' : 's'}. Here's what each one applies:`,
+    card: {type: 'templates', templates: cards},
   };
 }
 

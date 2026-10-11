@@ -213,6 +213,28 @@ function cleanRef(raw: string): string {
 }
 
 /**
+ * Detect a request to VIEW/LIST the onboarding templates. Returns true for
+ * "show me the templates", "list templates", "what templates do we have",
+ * "see the role templates". Returns false otherwise.
+ *
+ * Checked before the create-template intent, and deliberately does NOT match a
+ * create verb, so "create a template" still starts the builder.
+ */
+export function parseListTemplatesIntent(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  if (!/\btemplates?\b/.test(lower)) return false;
+  // A create/build request is not a list request.
+  if (
+    /\b(create|build|make|add|new|set ?up|start|design|define)\b/.test(lower)
+  ) {
+    return false;
+  }
+  return /\b(show|list|see|view|display|what|which|all|current|available|browse|templates)\b/.test(
+    lower,
+  );
+}
+
+/**
  * Detect a request to CREATE a new onboarding template. Returns true for
  * "create a template", "build a new template", "add a role template",
  * "make a new onboarding template", "set up a template". Returns false

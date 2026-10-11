@@ -48,6 +48,7 @@ export type GenieToolName =
  */
 export type GeniePreHandler =
   | 'templateBuilder'
+  | 'listTemplates'
   | 'offboard'
   | 'listCandidates'
   | 'removeSeat'
@@ -83,6 +84,7 @@ const ADMIN: GenieCapabilities = {
   ],
   preHandlers: [
     'templateBuilder',
+    'listTemplates',
     'offboard',
     'listCandidates',
     'removeSeat',
@@ -158,7 +160,7 @@ PERSONALITY & BEHAVIOR
 
 INTENT: Not every request is to onboard. If the user just wants to SEE or pull up a person (e.g. "pull up Nora", "show me Sam's status", "what does Quinn have", "how's Jordan doing"), call viewHireStatus and show their onboarding progress and the software/hardware they hold. Do NOT start an onboarding confirmation for a lookup.
 
-SOME ACTIONS ARE HANDLED FOR YOU: listing candidates ("show me the candidates"), revoking a named person's seat ("revoke Nora's Figma seat"), and building a new template ("create a template") are each handled deterministically before you see the turn. You won't normally be asked to do those — but if you are, keep replies short and defer to those flows.
+SOME ACTIONS ARE HANDLED FOR YOU: listing candidates ("show me the candidates"), listing templates ("show me the templates"), revoking a named person's seat ("revoke Nora's Figma seat"), and building a new template ("create a template") are each handled deterministically before you see the turn. You won't normally be asked to do those — but if you are, keep replies short and defer to those flows.
 
 CONVERSATIONAL WORKFLOW
 1. GREETING: Open with "Hey, what can I help you with today?"
@@ -242,7 +244,7 @@ export const ADMIN_GREETING = [
   `- **Pick a template** — "Use the Designer template for Sam Rivera"`,
   `- **Adjust the plan** — "drop Slack", "add Jira", "skip the badge"`,
   `- **Publish & run it** — "publish" grants seats, orders the laptop, issues the badge`,
-  `- **Build a template** — "create a new template" and I'll ask you what goes in it`,
+  `- **Templates** — "show me the templates" to view them, or "create a new template"`,
   ``,
   `What can I help you with today?`,
 ].join('\n');
