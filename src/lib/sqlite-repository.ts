@@ -19,14 +19,15 @@
  *    Postgres DDL remains the contract for a future SupabaseRepository.
  */
 
-import Database from "better-sqlite3";
-import type { Database as DatabaseType, Statement } from "better-sqlite3";
-import type { Collection, Repository } from "./repository";
+import Database from 'better-sqlite3';
+import type {Database as DatabaseType, Statement} from 'better-sqlite3';
+import type {Collection, Repository} from './repository';
 import type {
   AppCatalogItem,
   Asset,
   AssetCatalogItem,
   Budget,
+  Candidate,
   Company,
   Hire,
   LedgerEntry,
@@ -36,7 +37,7 @@ import type {
   Template,
   TemplateTask,
   User,
-} from "./types";
+} from './types';
 
 /** A column: its name plus how to encode/decode a single boolean field. */
 type ColumnSpec = {
@@ -58,10 +59,16 @@ interface TableSpec<T> {
  * INTEGER, everything else to TEXT. Nullability is enforced by the type
  * contract and callers, not by NOT NULL constraints, to keep inserts simple.
  */
-function columnDdl(col: ColumnSpec, fieldTypes: Record<string, "text" | "number" | "boolean">): string {
-  const kind = fieldTypes[col.name] ?? "text";
-  const sqlType = kind === "number" ? "NUMERIC" : kind === "boolean" ? "INTEGER" : "TEXT";
-  const pk = col.name === "id" ? " PRIMARY KEY" : "";
+function columnDdl(
+  col: ColumnSpec,
+  fieldTypes: Record<string, 'text' | 'number' | 'boolean'>,
+): string {
+  const kind = fieldTypes[col.name] ?? 'text';
+  const sqlType =
+    kind === 'number' ? 'NUMERIC'
+    : kind === 'boolean' ? 'INTEGER'
+    : 'TEXT';
+  const pk = col.name === 'id' ? ' PRIMARY KEY' : '';
   return `"${col.name}" ${sqlType}${pk}`;
 }
 
@@ -69,7 +76,7 @@ function columnDdl(col: ColumnSpec, fieldTypes: Record<string, "text" | "number"
  * One typed collection backed by a SQLite table. Prepared statements are built
  * once per collection and reused.
  */
-class SqliteCollection<T extends { id: string }> implements Collection<T> {
+class SqliteCollection<T extends {id: string}> implements Collection<T> {
   private readonly selectAll: Statement;
   private readonly selectOne: Statement;
   private readonly insertStmt: Statement;
@@ -82,14 +89,20 @@ class SqliteCollection<T extends { id: string }> implements Collection<T> {
     private readonly spec: TableSpec<T>,
   ) {
     this.columnNames = spec.columns.map((c) => c.name);
-    this.booleanCols = new Set(spec.columns.filter((c) => c.boolean).map((c) => c.name));
+    this.booleanCols = new Set(
+      spec.columns.filter((c) => c.boolean).map((c) => c.name),
+    );
 
-    const cols = this.columnNames.map((c) => `"${c}"`).join(", ");
-    const placeholders = this.columnNames.map((c) => `@${c}`).join(", ");
+    const cols = this.columnNames.map((c) => `"${c}"`).join(', ');
+    const placeholders = this.columnNames.map((c) => `@${c}`).join(', ');
 
     this.selectAll = db.prepare(`SELECT ${cols} FROM "${spec.table}"`);
-    this.selectOne = db.prepare(`SELECT ${cols} FROM "${spec.table}" WHERE "id" = ?`);
-    this.insertStmt = db.prepare(`INSERT INTO "${spec.table}" (${cols}) VALUES (${placeholders})`);
+    this.selectOne = db.prepare(
+      `SELECT ${cols} FROM "${spec.table}" WHERE "id" = ?`,
+    );
+    this.insertStmt = db.prepare(
+      `INSERT INTO "${spec.table}" (${cols}) VALUES (${placeholders})`,
+    );
     this.deleteStmt = db.prepare(`DELETE FROM "${spec.table}" WHERE "id" = ?`);
   }
 
@@ -143,13 +156,15 @@ class SqliteCollection<T extends { id: string }> implements Collection<T> {
     }
     const existing = this.fromRow(row);
     // Never let a patch change the primary key.
-    const next = { ...existing, ...patch, id: existing.id } as T;
+    const next = {...existing, ...patch, id: existing.id} as T;
 
     const assignments = this.columnNames
-      .filter((c) => c !== "id")
+      .filter((c) => c !== 'id')
       .map((c) => `"${c}" = @${c}`)
-      .join(", ");
-    const stmt = this.db.prepare(`UPDATE "${this.spec.table}" SET ${assignments} WHERE "id" = @id`);
+      .join(', ');
+    const stmt = this.db.prepare(
+      `UPDATE "${this.spec.table}" SET ${assignments} WHERE "id" = @id`,
+    );
     stmt.run(this.toRow(next));
     return next;
   }
@@ -167,102 +182,185 @@ class SqliteCollection<T extends { id: string }> implements Collection<T> {
 // Column + type definitions, mirroring src/lib/types.ts. Keep in sync when the
 // type contract changes (see Structure steering: "a new field or table").
 
-const cols = (...names: string[]): ColumnSpec[] => names.map((name) => ({ name }));
+const cols = (...names: string[]): ColumnSpec[] =>
+  names.map((name) => ({name}));
 
 interface SchemaEntry<T> {
   spec: TableSpec<T>;
-  fieldTypes: Record<string, "text" | "number" | "boolean">;
+  fieldTypes: Record<string, 'text' | 'number' | 'boolean'>;
 }
 
 const SCHEMA = {
   companies: {
-    spec: { table: "company", columns: cols("id", "name", "size", "industry") },
-    fieldTypes: { size: "number" },
+    spec: {table: 'company', columns: cols('id', 'name', 'size', 'industry')},
+    fieldTypes: {size: 'number'},
   } as SchemaEntry<Company>,
   users: {
-    spec: { table: "app_user", columns: cols("id", "name", "email", "role", "team", "managerId") },
+    spec: {
+      table: 'app_user',
+      columns: cols('id', 'name', 'email', 'role', 'team', 'managerId'),
+    },
     fieldTypes: {},
   } as SchemaEntry<User>,
   appCatalog: {
-    spec: { table: "app_catalog", columns: cols("id", "name", "category", "costPerSeat", "billing") },
-    fieldTypes: { costPerSeat: "number" },
+    spec: {
+      table: 'app_catalog',
+      columns: cols('id', 'name', 'category', 'costPerSeat', 'billing'),
+    },
+    fieldTypes: {costPerSeat: 'number'},
   } as SchemaEntry<AppCatalogItem>,
   assetCatalog: {
     spec: {
-      table: "asset_catalog",
-      columns: cols("id", "name", "category", "standardCost", "depreciationMonths"),
+      table: 'asset_catalog',
+      columns: cols(
+        'id',
+        'name',
+        'category',
+        'standardCost',
+        'depreciationMonths',
+      ),
     },
-    fieldTypes: { standardCost: "number", depreciationMonths: "number" },
+    fieldTypes: {standardCost: 'number', depreciationMonths: 'number'},
   } as SchemaEntry<AssetCatalogItem>,
   assets: {
     spec: {
-      table: "asset",
-      columns: cols("id", "catalogId", "serialTag", "status", "assignedToHireId", "acquiredAt", "returnedAt"),
+      table: 'asset',
+      columns: cols(
+        'id',
+        'catalogId',
+        'serialTag',
+        'status',
+        'assignedToHireId',
+        'acquiredAt',
+        'returnedAt',
+      ),
     },
     fieldTypes: {},
   } as SchemaEntry<Asset>,
   templates: {
-    spec: { table: "template", columns: cols("id", "roleName") },
+    spec: {table: 'template', columns: cols('id', 'roleName')},
     fieldTypes: {},
   } as SchemaEntry<Template>,
   templateTasks: {
     spec: {
-      table: "template_task",
-      columns: cols("id", "templateId", "title", "ownerTeam", "cost", "costType"),
+      table: 'template_task',
+      columns: cols(
+        'id',
+        'templateId',
+        'title',
+        'ownerTeam',
+        'cost',
+        'costType',
+      ),
     },
-    fieldTypes: { cost: "number" },
+    fieldTypes: {cost: 'number'},
   } as SchemaEntry<TemplateTask>,
   hires: {
     spec: {
-      table: "hire",
-      columns: cols("id", "name", "email", "roleName", "managerId", "startDate", "cohort"),
+      table: 'hire',
+      columns: cols(
+        'id',
+        'name',
+        'email',
+        'roleName',
+        'managerId',
+        'startDate',
+        'cohort',
+      ),
     },
     fieldTypes: {},
   } as SchemaEntry<Hire>,
   tasks: {
     spec: {
-      table: "task",
-      columns: cols("id", "hireId", "title", "ownerTeam", "status", "cost", "costType"),
+      table: 'task',
+      columns: cols(
+        'id',
+        'hireId',
+        'title',
+        'ownerTeam',
+        'status',
+        'cost',
+        'costType',
+      ),
     },
-    fieldTypes: { cost: "number" },
+    fieldTypes: {cost: 'number'},
   } as SchemaEntry<Task>,
   licenses: {
     spec: {
-      table: "license",
-      columns: cols("id", "hireId", "appId", "status", "grantedAt", "lastUsedAt"),
+      table: 'license',
+      columns: cols(
+        'id',
+        'hireId',
+        'appId',
+        'status',
+        'grantedAt',
+        'lastUsedAt',
+      ),
     },
     fieldTypes: {},
   } as SchemaEntry<License>,
   budgets: {
-    spec: { table: "budget", columns: cols("id", "team", "period", "limit", "spent") },
-    fieldTypes: { limit: "number", spent: "number" },
+    spec: {
+      table: 'budget',
+      columns: cols('id', 'team', 'period', 'limit', 'spent'),
+    },
+    fieldTypes: {limit: 'number', spent: 'number'},
   } as SchemaEntry<Budget>,
   ledgerEntries: {
     spec: {
-      table: "ledger_entry",
-      columns: cols("id", "hireId", "type", "label", "amount", "costType", "refTable", "refId", "createdAt"),
+      table: 'ledger_entry',
+      columns: cols(
+        'id',
+        'hireId',
+        'type',
+        'label',
+        'amount',
+        'costType',
+        'refTable',
+        'refId',
+        'createdAt',
+      ),
     },
-    fieldTypes: { amount: "number" },
+    fieldTypes: {amount: 'number'},
   } as SchemaEntry<LedgerEntry>,
   notifications: {
     spec: {
-      table: "notification",
+      table: 'notification',
       columns: [
-        { name: "id" },
-        { name: "targetTeam" },
-        { name: "message" },
-        { name: "batchId" },
-        { name: "read", boolean: true },
+        {name: 'id'},
+        {name: 'targetTeam'},
+        {name: 'message'},
+        {name: 'batchId'},
+        {name: 'read', boolean: true},
       ],
     },
-    fieldTypes: { read: "boolean" },
+    fieldTypes: {read: 'boolean'},
   } as SchemaEntry<Notification>,
+  candidates: {
+    spec: {
+      table: 'candidate',
+      columns: cols(
+        'id',
+        'name',
+        'title',
+        'roleName',
+        'hiringManagerId',
+        'resumeFile',
+        'startDate',
+        'status',
+        'hireId',
+      ),
+    },
+    fieldTypes: {},
+  } as SchemaEntry<Candidate>,
 } as const;
 
 /** Create every table if it doesn't already exist. */
 function ensureSchema(db: DatabaseType): void {
-  for (const entry of Object.values(SCHEMA) as SchemaEntry<{ id: string }>[]) {
-    const columnsDdl = entry.spec.columns.map((c) => columnDdl(c, entry.fieldTypes)).join(", ");
+  for (const entry of Object.values(SCHEMA) as SchemaEntry<{id: string}>[]) {
+    const columnsDdl = entry.spec.columns
+      .map((c) => columnDdl(c, entry.fieldTypes))
+      .join(', ');
     db.exec(`CREATE TABLE IF NOT EXISTS "${entry.spec.table}" (${columnsDdl})`);
   }
 }
@@ -283,11 +381,12 @@ export class SqliteRepository implements Repository {
   budgets: Collection<Budget>;
   ledgerEntries: Collection<LedgerEntry>;
   notifications: Collection<Notification>;
+  candidates: Collection<Candidate>;
 
   constructor(filename: string) {
     this.db = new Database(filename);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("foreign_keys = ON");
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
     ensureSchema(this.db);
 
     this.companies = new SqliteCollection(this.db, SCHEMA.companies.spec);
@@ -296,18 +395,30 @@ export class SqliteRepository implements Repository {
     this.assetCatalog = new SqliteCollection(this.db, SCHEMA.assetCatalog.spec);
     this.assets = new SqliteCollection(this.db, SCHEMA.assets.spec);
     this.templates = new SqliteCollection(this.db, SCHEMA.templates.spec);
-    this.templateTasks = new SqliteCollection(this.db, SCHEMA.templateTasks.spec);
+    this.templateTasks = new SqliteCollection(
+      this.db,
+      SCHEMA.templateTasks.spec,
+    );
     this.hires = new SqliteCollection(this.db, SCHEMA.hires.spec);
     this.tasks = new SqliteCollection(this.db, SCHEMA.tasks.spec);
     this.licenses = new SqliteCollection(this.db, SCHEMA.licenses.spec);
     this.budgets = new SqliteCollection(this.db, SCHEMA.budgets.spec);
-    this.ledgerEntries = new SqliteCollection(this.db, SCHEMA.ledgerEntries.spec);
-    this.notifications = new SqliteCollection(this.db, SCHEMA.notifications.spec);
+    this.ledgerEntries = new SqliteCollection(
+      this.db,
+      SCHEMA.ledgerEntries.spec,
+    );
+    this.notifications = new SqliteCollection(
+      this.db,
+      SCHEMA.notifications.spec,
+    );
+    this.candidates = new SqliteCollection(this.db, SCHEMA.candidates.spec);
   }
 
   /** True if the store has no companies yet — used to decide whether to seed. */
   isEmpty(): boolean {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM "company"').get() as { n: number };
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS n FROM "company"')
+      .get() as {n: number};
     return row.n === 0;
   }
 
