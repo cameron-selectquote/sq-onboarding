@@ -576,6 +576,32 @@ export const seedData: SeedData = {
       grantedAt: null,
       lastUsedAt: null,
     },
+    // Extra idle/flagged seats so the reclaimable total is large enough to pull
+    // a projected quarter-end overage back under budget (the BvA reclaim beat).
+    {
+      id: 'lic_12',
+      hireId: 'hire_2',
+      appId: 'github',
+      status: 'idle',
+      grantedAt: daysAgo(80),
+      lastUsedAt: daysAgo(50),
+    },
+    {
+      id: 'lic_13',
+      hireId: 'hire_4',
+      appId: 'figma',
+      status: 'idle',
+      grantedAt: daysAgo(75),
+      lastUsedAt: daysAgo(48),
+    },
+    {
+      id: 'lic_14',
+      hireId: 'hire_5',
+      appId: 'jira',
+      status: 'reclaim',
+      grantedAt: daysAgo(85),
+      lastUsedAt: daysAgo(55),
+    },
   ],
 
   // Per-quarter team budgets, sized so the seeded/backdated spend meaningfully
