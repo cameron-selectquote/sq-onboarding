@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { publicUrl } from "@/lib/public-url";
 import { canOpenPath, homePathFor } from "@/lib/access";
 import { findAccount } from "@/lib/accounts";
 import { passwordMatches } from "@/lib/session";
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
   const username = String(form.get("username") ?? "");
   const next = safeNext(form.get("next"));
   const fail = (error: string) => {
-    const url = new URL("/login", req.url);
+    const url = publicUrl("/login", req);
     url.searchParams.set("error", error);
     if (next) url.searchParams.set("next", next);
     if (username) url.searchParams.set("username", username.slice(0, 64));
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const { role } = account;
   const dest = next && canOpenPath(role, new URL(next, req.url).pathname) ? next : homePathFor(role);
-  const res = NextResponse.redirect(new URL(dest, req.url), 303);
+  const res = NextResponse.redirect(publicUrl(dest, req), 303);
   await setSessionCookie(
     res,
     { username: account.username, name: account.name, role, viewAs: role, hireId: account.hireId },

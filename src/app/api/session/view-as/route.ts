@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { publicUrl } from "@/lib/public-url";
 import { canSwitchRole, homePathFor, isAppRole } from "@/lib/access";
 import { authSecret, currentSession, setSessionCookie } from "@/server/auth";
 import { getServices } from "@/server/store";
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     hireId = id;
   }
 
-  const res = NextResponse.redirect(new URL(homePathFor(viewAs), req.url), 303);
+  const res = NextResponse.redirect(publicUrl(homePathFor(viewAs), req), 303);
   await setSessionCookie(res, { ...session, viewAs, hireId }, secret);
   return res;
 }

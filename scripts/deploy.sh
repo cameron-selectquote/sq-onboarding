@@ -55,6 +55,10 @@ smoke() {
   local code
   code=$(curl -sS -o /dev/null -w '%{http_code}' "$PROD_URL/api/hires") || return 1
   [[ "$code" == 401 ]] || { echo "::error::Expected 401 from /api/hires without a session, got $code"; return 1; }
+  # Redirects must stay on the public origin (not the proxy's upstream, e.g. localhost:3000).
+  local location
+  location=$(curl -sS -o /dev/null -w '%{redirect_url}' "$PROD_URL/home") || return 1
+  [[ "$location" == "$PROD_URL/"* ]] || { echo "::error::/home redirected to '$location', expected $PROD_URL/..."; return 1; }
 }
 
 if smoke; then

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { publicUrl } from "@/lib/public-url";
 import { canCallApi, canOpenPath, homePathFor } from "@/lib/access";
 import { SESSION_COOKIE } from "@/lib/session";
 import { readSession } from "@/server/auth";
@@ -24,7 +25,7 @@ export async function middleware(req: NextRequest) {
 
   if (!session) {
     if (isApi) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-    const login = new URL("/login", req.url);
+    const login = publicUrl("/login", req);
     if (pathname !== "/") login.searchParams.set("next", pathname + search);
     return NextResponse.redirect(login);
   }
@@ -36,7 +37,7 @@ export async function middleware(req: NextRequest) {
   }
 
   if (pathname === "/" || !canOpenPath(session.viewAs, pathname)) {
-    return NextResponse.redirect(new URL(homePathFor(session.viewAs), req.url));
+    return NextResponse.redirect(publicUrl(homePathFor(session.viewAs), req));
   }
   return NextResponse.next();
 }
