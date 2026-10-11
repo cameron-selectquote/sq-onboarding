@@ -3,6 +3,7 @@ import {LedgerService} from '@/lib/ledger';
 import {LicenseService} from '@/lib/licenses';
 import {AssetService} from '@/lib/assets';
 import {OnboardingExecutor} from '@/lib/onboarding';
+import {NotificationService} from '@/lib/notifications';
 import {sequentialIdGenerator, fixedClock} from '@/lib/ids';
 import type {Repository} from '@/lib/repository';
 
@@ -212,5 +213,38 @@ describe('OnboardingExecutor.executeForHire', () => {
     const tasks = await repo.tasks.where((t) => t.hireId === 'hire_x');
     const slackTask = tasks.find((t) => /slack/i.test(t.title));
     expect(slackTask?.status).toBe('todo');
+  });
+
+  it('notifies each owning team once per run when a notifier is injected', async () => {
+    const repo = await seedHireWithSweTasks();
+    const notifications = new NotificationService(repo, {
+      idGenerator: sequentialIdGenerator('ntf'),
+    });
+    const ledger = new LedgerService(repo, {
+      idGenerator: sequentialIdGenerator('led'),
+      clock: fixedClock('2026-03-01T00:00:00.000Z'),
+    });
+    const licenses = new LicenseService(repo, ledger);
+    const assets = new AssetService(repo, ledger, {
+      idGenerator: sequentialIdGenerator('asset'),
+      clock: fixedClock('2026-03-01T00:00:00.000Z'),
+    });
+    const exec = new OnboardingExecutor(repo, licenses, assets, {
+      serialGenerator: sequentialIdGenerator('sn'),
+      notifications,
+    });
+
+    await exec.executeForHire('hire_x');
+
+    // IT (email/SSO + 2 grants), vendor (laptop), facilities (badge) each get
+    // one batched message; HR's task was human-only (skipped) so no inbox item.
+    expect(await notifications.unreadCount('it')).toBe(1);
+    expect(await notifications.unreadCount('vendor')).toBe(1);
+    expect(await notifications.unreadCount('facilities')).toBe(1);
+    expect(await notifications.unreadCount('hr')).toBe(0);
+
+    const it = await notifications.forTeam('it');
+    expect(it[0]?.message).toMatch(/Nora Alvarez/);
+    expect(it[0]?.batchId).toBe('onboard_hire_x');
   });
 });

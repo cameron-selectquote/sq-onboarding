@@ -1012,6 +1012,82 @@ a.seg-opt[aria-current='page'] {
   font-weight: 700;
 }
 
+/* — recovered-spend card inside a Genie bubble (offboard preview/result) — */
+.reclaim-card {
+  margin-top: 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.reclaim-card.is-done {
+  border-color: var(--color-accent-2);
+  background: var(--color-accent-2-100);
+}
+.reclaim-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.reclaim-card-title {
+  font-family: var(--font-heading);
+  font-size: 15px;
+}
+.reclaim-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.reclaim-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+}
+.reclaim-card-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.reclaim-card-amt {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-800);
+}
+.reclaim-card-totals {
+  display: flex;
+  gap: 10px;
+  border-top: 1px solid var(--color-divider);
+  padding-top: 12px;
+}
+.reclaim-card-total {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-100);
+}
+.reclaim-card.is-done .reclaim-card-total {
+  background: color-mix(in srgb, var(--color-accent-2) 14%, transparent);
+}
+.reclaim-card-total-value {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.reclaim-card-total-label {
+  font-size: 12px;
+  color: var(--color-neutral-700);
+}
+
 /* — rendered markdown inside a Genie bubble — */
 .md {
   display: flex;

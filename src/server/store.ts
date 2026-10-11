@@ -27,10 +27,52 @@ import {TemplateService} from '@/lib/templates';
 import {CandidateService} from '@/lib/candidates';
 import {OnboardingExecutor} from '@/lib/onboarding';
 import {OffboardingService} from '@/lib/offboarding';
+import {NotificationService} from '@/lib/notifications';
 import {MockAiClient} from '@/lib/ai';
 import type {Repository} from '@/lib/repository';
-import type {AiClient} from '@/lib/ai';
+import type {AiClient, BriefBlurb, TemplateMatch} from '@/lib/ai';
+import {hasBedrockCreds} from '@/lib/bedrock';
 import {backfillSeedFields, loadSeed, seedData} from '@/data/seed';
+
+/**
+ * An `AiClient` that defers loading the Strands SDK until the first call.
+ *
+ * `store.ts` is imported by API routes AND by the unit tests (via the shared
+ * services). The Strands SDK ships ESM-only, which ts-jest's CommonJS runtime
+ * can't parse, so a *static* import of `StrandsAiClient` here would crash any
+ * test that touches the store — even though tests run with no Bedrock creds and
+ * never call the AI. Deferring the import to the first method call keeps the
+ * SDK out of the module graph entirely in that path. It's only ever
+ * constructed when `hasBedrockCreds()` is true, i.e. at runtime with creds.
+ */
+class LazyStrandsAiClient implements AiClient {
+  private delegate: Promise<AiClient> | null = null;
+
+  constructor(private readonly repo: Repository) {}
+
+  private load(): Promise<AiClient> {
+    if (!this.delegate) {
+      this.delegate = import('@/lib/strands-ai').then(
+        (m) => new m.StrandsAiClient(this.repo),
+      );
+    }
+    return this.delegate;
+  }
+
+  async matchTemplate(input: {
+    title: string;
+    offerText?: string;
+  }): Promise<TemplateMatch> {
+    return (await this.load()).matchTemplate(input);
+  }
+
+  async draftBrief(input: {
+    hireName: string;
+    appNames: string[];
+  }): Promise<BriefBlurb[]> {
+    return (await this.load()).draftBrief(input);
+  }
+}
 
 interface Services {
   repo: Repository;
@@ -42,6 +84,7 @@ interface Services {
   candidates: CandidateService;
   onboarding: OnboardingExecutor;
   offboarding: OffboardingService;
+  notifications: NotificationService;
   ai: AiClient;
 }
 
@@ -73,6 +116,7 @@ function build(): {services: Services; repo: SqliteRepository} {
   const licenses = new LicenseService(repo, ledger);
   const reclaimTasks = new ReclaimTaskService(repo, licenses);
   const assets = new AssetService(repo, ledger);
+  const notifications = new NotificationService(repo);
   return {
     repo,
     services: {
@@ -83,9 +127,20 @@ function build(): {services: Services; repo: SqliteRepository} {
       assets,
       templates,
       candidates: new CandidateService(repo, templates),
-      onboarding: new OnboardingExecutor(repo, licenses, assets),
-      offboarding: new OffboardingService(repo, licenses, assets),
-      ai: new MockAiClient(),
+      onboarding: new OnboardingExecutor(repo, licenses, assets, {
+        notifications,
+      }),
+      offboarding: new OffboardingService(repo, licenses, assets, {
+        notifications,
+      }),
+      notifications,
+      // Strands-backed AI (Bedrock) when creds exist; deterministic mock
+      // otherwise, so the demo and tests run offline. Same graceful-degradation
+      // policy as the Genie — the one `hasBedrockCreds()` check decides both.
+      // Built lazily so the Strands SDK (ESM-only) is never pulled into module
+      // load — importing it statically breaks ts-jest's CommonJS test runtime.
+      ai:
+        hasBedrockCreds() ? new LazyStrandsAiClient(repo) : new MockAiClient(),
     },
   };
 }
@@ -111,9 +166,13 @@ function services(): Services {
  */
 async function migrateExisting(repo: SqliteRepository): Promise<void> {
   if (repo.addedColumns.length > 0) {
-    const cols = repo.addedColumns.map((c) => `${c.table}.${c.column}`).join(', ');
+    const cols = repo.addedColumns
+      .map((c) => `${c.table}.${c.column}`)
+      .join(', ');
     const patched = await backfillSeedFields(repo, repo.addedColumns);
-    console.info(`[store] migrated DB: added ${cols}; backfilled ${patched} seed row(s)`);
+    console.info(
+      `[store] migrated DB: added ${cols}; backfilled ${patched} seed row(s)`,
+    );
   }
   await backfillCandidates(repo);
 }

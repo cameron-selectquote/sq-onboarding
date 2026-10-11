@@ -34,9 +34,14 @@ import {
   skipTask,
   type PendingPlan,
 } from '@/lib/plan';
+import type {OffboardPreview, OffboardResult} from '@/lib/offboarding';
+import {classifyConfirmation, parseOffboardIntent} from '@/lib/intent';
 import type {AppCatalogItem, Candidate} from '@/lib/types';
 import type {Repository} from '@/lib/repository';
+import {hasBedrockCreds} from '@/lib/bedrock';
 import {getServices} from './store';
+
+export {hasBedrockCreds} from '@/lib/bedrock';
 
 /**
  * Strands debug logging. The SDK's default logger silences debug/info and only
@@ -84,6 +89,7 @@ CONVERSATIONAL WORKFLOW
 3a. ADJUSTMENTS: The user may ask to change the plan before publishing — e.g. "she doesn't need Slack", "add Jira", "skip the badge", "use the Designer template", "she starts March 15". Track these: adjust the seat list (appIds) you'll pass to createOnboardingPlan, the roleName, the start date, and note any tasks to skip. Confirm the change and re-show the updated seats, then invite more adjustments or publishing. Never silently ignore an adjustment.
 4. PUBLISH: When the user approves, call createOnboardingPlan with the final roleName and appIds (reflecting every adjustment). Keep the hireId it returns.
 5. EXECUTE: Immediately after publishing, call executeOnboardingTasks with that hireId to actually carry out everything that can be automated — grant software seats, order the laptop, issue the badge, provision email/SSO. If the user asked to leave anything out, pass those as skipKeywords (e.g. ["slack","badge"]) so they're not done. Then confirm with: a direct link to the candidate's onboarding portal, a short summary of what you automated, and a list of the remaining tasks that need a person.
+6. WELCOME BRIEF: After executeOnboardingTasks, call draftWelcomeBrief with the same hireId to generate a short welcome brief from the seats you granted, and share the blurbs so the team has something to send the new hire.
 
 OFFBOARDING (destructive — handle with care)
 - When the user asks to offboard someone, FIRST call previewOffboarding and show them exactly what will be reclaimed: the software seats (with monthly cost recovered) and the hardware (with residual value credited), plus the totals.
@@ -108,20 +114,9 @@ export const GENIE_GREETING = [
 const MODEL_ID =
   process.env.GENIE_MODEL_ID ?? 'global.anthropic.claude-sonnet-4-6';
 
-/** True when Bedrock credentials are available in the environment. */
-export function hasBedrockCreds(): boolean {
-  return Boolean(
-    process.env.AWS_BEARER_TOKEN_BEDROCK ||
-    process.env.AWS_ACCESS_KEY_ID ||
-    process.env.AWS_PROFILE ||
-    process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ||
-    process.env.AWS_WEB_IDENTITY_TOKEN_FILE,
-  );
-}
-
 /** Build the Genie's Strands tools, bound to the shared services. */
 async function buildTools() {
-  const {candidates, onboarding, offboarding, repo} = await getServices();
+  const {candidates, onboarding, offboarding, ai, repo} = await getServices();
 
   const searchCandidateRecords = tool({
     name: 'searchCandidateRecords',
@@ -272,12 +267,38 @@ async function buildTools() {
     },
   });
 
+  const draftWelcomeBrief = tool({
+    name: 'draftWelcomeBrief',
+    description:
+      "Draft a short welcome brief for a hire from the software seats they've been granted (one friendly blurb per tool). Call this AFTER executeOnboardingTasks so the seats exist, using the hireId from createOnboardingPlan. Returns heading/body blurbs to share with the new hire. Read-only — writes nothing.",
+    inputSchema: z.object({
+      hireId: z.string().describe('The hire id to draft a welcome brief for'),
+    }),
+    callback: async ({hireId}) => {
+      const hire = await repo.hires.get(hireId);
+      if (!hire) return {error: `No hire found for "${hireId}"`};
+      const [licenses, apps] = await Promise.all([
+        repo.licenses.where(
+          (l) => l.hireId === hireId && l.status === 'active',
+        ),
+        repo.appCatalog.list(),
+      ]);
+      const nameById = new Map(apps.map((a) => [a.id, a.name]));
+      const appNames = licenses
+        .map((l) => nameById.get(l.appId))
+        .filter((n): n is string => Boolean(n));
+      const blurbs = await ai.draftBrief({hireName: hire.name, appNames});
+      return {hireName: hire.name, blurbs};
+    },
+  });
+
   return [
     searchCandidateRecords,
     createOnboardingPlan,
     executeOnboardingTasks,
     previewOffboarding,
     executeOffboarding,
+    draftWelcomeBrief,
   ];
 }
 
@@ -286,13 +307,47 @@ async function resolveHireId(
   repo: Repository,
   name: string,
 ): Promise<string | null> {
+  const res = await resolveHire(repo, name);
+  return res.kind === 'one' ? res.id : null;
+}
+
+/** A hire-name lookup that distinguishes no match, one match, and several. */
+type HireLookup =
+  | {kind: 'none'}
+  | {kind: 'one'; id: string; name: string}
+  | {kind: 'many'; matches: {id: string; name: string}[]};
+
+/**
+ * Resolve a hire name to exactly one hire, or report ambiguity so the caller
+ * can ask the user to disambiguate instead of silently picking the first.
+ * Exact (case-insensitive) wins outright; otherwise substring matches are
+ * collected and "many" is returned when more than one survives.
+ */
+async function resolveHire(
+  repo: Repository,
+  name: string,
+): Promise<HireLookup> {
   const q = name.trim().toLowerCase();
-  if (!q) return null;
+  if (!q) return {kind: 'none'};
   const hires = await repo.hires.list();
-  const exact = hires.find((h) => h.name.toLowerCase() === q);
-  if (exact) return exact.id;
-  const partial = hires.find((h) => h.name.toLowerCase().includes(q));
-  return partial?.id ?? null;
+
+  const exact = hires.filter((h) => h.name.toLowerCase() === q);
+  if (exact.length === 1)
+    return {kind: 'one', id: exact[0]!.id, name: exact[0]!.name};
+  if (exact.length > 1)
+    return {
+      kind: 'many',
+      matches: exact.map((h) => ({id: h.id, name: h.name})),
+    };
+
+  const partial = hires.filter((h) => h.name.toLowerCase().includes(q));
+  if (partial.length === 0) return {kind: 'none'};
+  if (partial.length === 1)
+    return {kind: 'one', id: partial[0]!.id, name: partial[0]!.name};
+  return {
+    kind: 'many',
+    matches: partial.map((h) => ({id: h.id, name: h.name})),
+  };
 }
 
 /** True when Strands debug logging is requested via env. */
@@ -318,6 +373,27 @@ export async function buildGenieAgent(): Promise<Agent> {
   });
 }
 
+/**
+ * A structured recovered-spend card the chat renders as a visual panel next to
+ * the prose. Used for the offboard preview (`pending` kind, before confirming)
+ * and the confirmed result (`done` kind). Totals are kept as numbers so the UI
+ * can format them; `message` still carries a text fallback.
+ */
+export interface ReclaimCard {
+  type: 'reclaim';
+  /** `pending` = previewed, awaiting yes/no; `done` = executed. */
+  kind: 'pending' | 'done';
+  hireName: string;
+  seats: {label: string; monthly: number}[];
+  assets: {label: string; residual: number}[];
+  /** Recurring $/mo recovered by revoking the seats. */
+  monthlyRecovered: number;
+  /** One-time $ credited back from returned hardware. */
+  oneTimeRecovered: number;
+}
+
+export type GenieCard = ReclaimCard;
+
 export interface GenieReply {
   /** Assistant text to show the user. */
   message: string;
@@ -330,6 +406,11 @@ export interface GenieReply {
   plan?: PendingPlan | null;
   /** A previewed-but-unconfirmed offboard, carried across turns. */
   offboard?: PendingOffboard | null;
+  /**
+   * An optional structured card to render alongside the message (recovered
+   * spend on offboard). Not round-tripped — it's render-only for this turn.
+   */
+  card?: GenieCard | null;
 }
 
 /** One prior turn of the conversation, oldest first. */
@@ -420,20 +501,13 @@ async function resolveOffboardConfirmation(
 ): Promise<GenieReply | null> {
   const {offboarding, repo} = await getServices();
   const text = input.message.trim();
-  const lower = text.toLowerCase();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
   const pending = input.offboard ?? null;
 
-  const affirmative =
-    /\b(yes|yep|yeah|yup|sure|confirm|do it|go ahead|offboard (?:them|her|him)|proceed)\b/.test(
-      lower,
-    );
-  const negative =
-    /\b(no|cancel|stop|don'?t|do not|nevermind|never mind|abort)\b/.test(lower);
-
   if (pending) {
-    if (negative) {
+    const decision = classifyConfirmation(text);
+    if (decision === 'negative') {
       return {
         message: `Okay — I won't offboard ${pending.hireName}. Nothing changed.`,
         engine,
@@ -441,15 +515,17 @@ async function resolveOffboardConfirmation(
         plan: input.plan ?? null,
       };
     }
-    if (affirmative) {
+    if (decision === 'affirmative') {
       const r = await offboarding.execute(pending.hireId);
       return {
         message: renderOffboardResult(r),
         engine,
         offboard: null,
         plan: input.plan ?? null,
+        card: reclaimCardFromResult(r),
       };
     }
+    // Unclear — re-ask rather than guess on a destructive action.
     return {
       message: `Just to confirm — reply **yes** to offboard ${pending.hireName} (revoke seats + return hardware), or **no** to cancel.`,
       engine,
@@ -461,8 +537,8 @@ async function resolveOffboardConfirmation(
   const name = parseOffboardIntent(text);
   if (!name) return null;
 
-  const hireId = await resolveHireId(repo, name);
-  if (!hireId) {
+  const lookup = await resolveHire(repo, name);
+  if (lookup.kind === 'none') {
     return {
       message: `I couldn't find a current hire named "${name}". Who should I offboard?`,
       engine,
@@ -470,7 +546,22 @@ async function resolveOffboardConfirmation(
       plan: input.plan ?? null,
     };
   }
-  const preview = await offboarding.preview(hireId);
+  if (lookup.kind === 'many') {
+    const list = lookup.matches.map((m) => `- ${m.name}`).join('\n');
+    return {
+      message: [
+        `More than one current hire matches "${name}":`,
+        ``,
+        list,
+        ``,
+        `Which one should I offboard? Reply with the full name.`,
+      ].join('\n'),
+      engine,
+      offboard: null,
+      plan: input.plan ?? null,
+    };
+  }
+  const preview = await offboarding.preview(lookup.id);
   if (preview.nothingToReclaim) {
     return {
       message: `${preview.hireName} has no active seats or assigned hardware to reclaim — nothing to offboard.`,
@@ -484,7 +575,29 @@ async function resolveOffboardConfirmation(
     engine,
     offboard: {hireId: preview.hireId, hireName: preview.hireName},
     plan: input.plan ?? null,
+    card: reclaimCardFromPreview(preview),
   };
+}
+
+/** Build the render-only reclaim card from a read-only offboard preview. */
+function reclaimCardFromPreview(p: OffboardPreview): ReclaimCard {
+  return {
+    type: 'reclaim',
+    kind: 'pending',
+    hireName: p.hireName,
+    seats: p.seats.map((s) => ({label: s.appName, monthly: s.monthly})),
+    assets: p.assets.map((a) => ({
+      label: `${a.name} (${a.serialTag})`,
+      residual: a.residual,
+    })),
+    monthlyRecovered: p.monthlyRecovered,
+    oneTimeRecovered: p.oneTimeRecovered,
+  };
+}
+
+/** Build the render-only reclaim card from a confirmed offboard result. */
+function reclaimCardFromResult(r: OffboardResult): ReclaimCard {
+  return {...reclaimCardFromPreview(r), kind: 'done'};
 }
 
 /** Replay prior turns + the new message as Strands MessageData the model reads. */
@@ -549,7 +662,7 @@ interface ScriptedResult {
  * "she starts March 15") stick.
  */
 async function scripted(input: GenieTurnInput): Promise<ScriptedResult> {
-  const {candidates, onboarding, repo} = await getServices();
+  const {candidates, onboarding, ai, repo} = await getServices();
   const text = input.message.trim();
   const lower = text.toLowerCase();
   const apps = await repo.appCatalog.list();
@@ -590,8 +703,18 @@ async function scripted(input: GenieTurnInput): Promise<ScriptedResult> {
       const report = await onboarding.executeForHire(result.hire.id, {
         skipKeywords: plan.skipTaskKeywords,
       });
+      // Draft a short AI welcome brief from the seats actually granted, so the
+      // run ends with something to hand the new hire (BuildPlan §4 draft-brief).
+      const welcome = await draftWelcomeBrief(
+        ai,
+        repo,
+        result.hire.id,
+        result.hire.name,
+      );
       return {
-        message: renderExecution(result.hire.name, report, result.portalUrl),
+        message:
+          renderExecution(result.hire.name, report, result.portalUrl) +
+          (welcome ? `\n\n${welcome}` : ''),
         plan: null,
       };
     }
@@ -718,27 +841,43 @@ function renderExecution(
   return sections.join('\n');
 }
 
-/** Detect an offboarding request and extract the name. Null if not offboarding. */
-function parseOffboardIntent(text: string): string | null {
-  const lower = text.toLowerCase();
-  if (
-    !/\b(offboard|off-board|deprovision|de-provision|terminate|is leaving|leaving the company|last day)\b/.test(
-      lower,
-    )
-  ) {
+/**
+ * Draft a short welcome brief from the hire's granted (active) seats via the
+ * AiClient, rendered as a Markdown section. Returns null when there are no
+ * active seats yet or the AI call fails — the brief is a bonus, never a
+ * blocker, so a failure must not break the publish confirmation.
+ */
+async function draftWelcomeBrief(
+  ai: {
+    draftBrief: (i: {
+      hireName: string;
+      appNames: string[];
+    }) => Promise<{heading: string; body: string}[]>;
+  },
+  repo: Repository,
+  hireId: string,
+  hireName: string,
+): Promise<string | null> {
+  try {
+    const [licenses, apps] = await Promise.all([
+      repo.licenses.where((l) => l.hireId === hireId && l.status === 'active'),
+      repo.appCatalog.list(),
+    ]);
+    const nameById = new Map(apps.map((a) => [a.id, a.name]));
+    const appNames = licenses
+      .map((l) => nameById.get(l.appId))
+      .filter((n): n is string => Boolean(n));
+    if (appNames.length === 0) return null;
+
+    const blurbs = await ai.draftBrief({hireName, appNames});
+    if (blurbs.length === 0) return null;
+
+    const lines = [`**Welcome brief for ${hireName}**`, ``];
+    for (const b of blurbs) lines.push(`- **${b.heading}** — ${b.body}`);
+    return lines.join('\n');
+  } catch {
     return null;
   }
-  // "offboard Quinn Baker" / "deprovision Quinn" — take the name after the verb.
-  const m = text.match(
-    /\b(?:offboard|off-board|deprovision|de-provision|terminate)\s+(.+)/i,
-  );
-  if (m) return m[1]!.replace(/[.?!]+$/, '').trim();
-  // "Quinn Baker is leaving" — take the name before the phrase.
-  const m2 = text.match(
-    /^(.+?)\s+(?:is leaving|leaving the company|last day)/i,
-  );
-  if (m2) return m2[1]!.trim();
-  return null;
 }
 
 function money0(n: number): string {
@@ -753,27 +892,19 @@ function renderOffboardPreview(p: {
   monthlyRecovered: number;
   oneTimeRecovered: number;
 }): string {
-  const lines = [`**Offboarding ${p.hireName} would reclaim:**`, ``];
-  if (p.seats.length) {
-    lines.push(`**Seats to revoke**`, ``);
-    for (const s of p.seats)
-      lines.push(`- ${s.appName} — ${money0(s.monthly)}/mo`);
-    lines.push(``);
-  }
-  if (p.assets.length) {
-    lines.push(`**Hardware to return**`, ``);
-    for (const a of p.assets)
-      lines.push(
-        `- ${a.name} (${a.serialTag}) — ${money0(a.residual)} residual`,
-      );
-    lines.push(``);
-  }
-  lines.push(
-    `**Recovers ${money0(p.monthlyRecovered)}/mo recurring + ${money0(p.oneTimeRecovered)} one-time.**`,
+  // The breakdown + totals are shown in the attached reclaim card; keep the
+  // prose to the ask so the two don't duplicate each other.
+  const seatCount = p.seats.length;
+  const assetCount = p.assets.length;
+  const parts: string[] = [];
+  if (seatCount) parts.push(`${seatCount} seat${seatCount === 1 ? '' : 's'}`);
+  if (assetCount)
+    parts.push(`${assetCount} asset${assetCount === 1 ? '' : 's'}`);
+  return [
+    `Here's what offboarding **${p.hireName}** would reclaim — ${parts.join(' and ')}, worth ${money0(p.monthlyRecovered)}/mo recurring + ${money0(p.oneTimeRecovered)} one-time.`,
     ``,
     `⚠️ This revokes the seats and returns the hardware. Reply **yes** to offboard ${p.hireName}, or **no** to cancel.`,
-  );
-  return lines.join('\n');
+  ].join('\n');
 }
 
 /** The summary after a confirmed offboard. */
@@ -784,11 +915,9 @@ function renderOffboardResult(r: {
   monthlyRecovered: number;
   oneTimeRecovered: number;
 }): string {
+  // Totals live in the attached reclaim card; the prose confirms + points on.
   return [
-    `**${r.hireName} offboarded.**`,
-    ``,
-    `- Revoked ${r.revokedSeatIds.length} seat(s) — ${money0(r.monthlyRecovered)}/mo recovered`,
-    `- Returned ${r.returnedAssetIds.length} asset(s) — ${money0(r.oneTimeRecovered)} credited back`,
+    `**${r.hireName} offboarded.** Revoked ${r.revokedSeatIds.length} seat(s) and returned ${r.returnedAssetIds.length} asset(s).`,
     ``,
     `Finance will show the recovered spend on the reclaim view.`,
   ].join('\n');

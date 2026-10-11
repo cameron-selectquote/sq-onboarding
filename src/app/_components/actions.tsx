@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 /**
  * The only client code in the role views. Each control calls an existing /api
@@ -6,23 +6,23 @@
  * no business logic here, and no full reload (role-views AC #2, #3).
  */
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition, type ReactNode } from "react";
-import type { TaskStatus } from "@/lib/types";
-import { money } from "./format";
+import {useRouter} from 'next/navigation';
+import {useState, useTransition, type ReactNode} from 'react';
+import type {TaskStatus} from '@/lib/types';
+import {money} from './format';
 
 async function send(
   url: string,
-  method: "POST" | "PATCH",
+  method: 'POST' | 'PATCH',
   body?: unknown,
 ): Promise<void> {
   const res = await fetch(url, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers: body ? {'Content-Type': 'application/json'} : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    const data = (await res.json().catch(() => ({}))) as {error?: string};
     throw new Error(data.error ?? `Request failed (${res.status})`);
   }
 }
@@ -47,23 +47,29 @@ function useMutation() {
     }
   }
 
-  return { run, pending: busy || pending, error };
+  return {run, pending: busy || pending, error};
 }
 
 /**
  * Wraps board content so a single click opens the hire detail page. A keyboard
  * Enter does the same.
  */
-export function ClickCard({ href, children }: { href: string; children: ReactNode }) {
+export function ClickCard({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
   const router = useRouter();
   return (
     <div
-      role="link"
+      role='link'
       tabIndex={0}
-      style={{ cursor: "pointer" }}
+      style={{cursor: 'pointer'}}
       onClick={() => router.push(href)}
       onKeyDown={(e) => {
-        if (e.key === "Enter") router.push(href);
+        if (e.key === 'Enter') router.push(href);
       }}
     >
       {children}
@@ -72,11 +78,11 @@ export function ClickCard({ href, children }: { href: string; children: ReactNod
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
-  todo: "To do",
-  in_progress: "In progress",
-  review: "Review",
-  blocked: "Blocked",
-  done: "Done",
+  todo: 'To do',
+  in_progress: 'In progress',
+  review: 'Review',
+  blocked: 'Blocked',
+  done: 'Done',
 };
 
 /** Board card status control — PATCH /api/tasks/:id. */
@@ -87,18 +93,18 @@ export function TaskStatusSelect({
   taskId: string;
   status: TaskStatus;
 }) {
-  const { run, pending, error } = useMutation();
+  const {run, pending, error} = useMutation();
   return (
     <>
       <select
-        className="input status-select"
-        aria-label="Task status"
+        className='input status-select'
+        aria-label='Task status'
         value={status}
         disabled={pending}
         onChange={(e) =>
           run([
             () =>
-              send(`/api/tasks/${taskId}`, "PATCH", { status: e.target.value }),
+              send(`/api/tasks/${taskId}`, 'PATCH', {status: e.target.value}),
           ])
         }
       >
@@ -108,7 +114,7 @@ export function TaskStatusSelect({
           </option>
         ))}
       </select>
-      {error && <span className="error">{error}</span>}
+      {error && <span className='error'>{error}</span>}
     </>
   );
 }
@@ -125,20 +131,20 @@ export function TaskMoveButton({
   label: string;
   primary?: boolean;
 }) {
-  const { run, pending, error } = useMutation();
+  const {run, pending, error} = useMutation();
   return (
     <span>
       <button
-        className={primary ? "btn btn-primary" : "btn btn-secondary"}
-        style={{ fontSize: 13 }}
+        className={primary ? 'btn btn-primary' : 'btn btn-secondary'}
+        style={{fontSize: 13}}
         disabled={pending}
         onClick={() =>
-          run([() => send(`/api/tasks/${taskId}`, "PATCH", { status: to })])
+          run([() => send(`/api/tasks/${taskId}`, 'PATCH', {status: to})])
         }
       >
         {label}
       </button>
-      {error && <span className="error"> {error}</span>}
+      {error && <span className='error'> {error}</span>}
     </span>
   );
 }
@@ -148,14 +154,14 @@ export function LicenseButton({
   licenseIds,
   action,
   label,
-  className = "btn btn-secondary",
+  className = 'btn btn-secondary',
 }: {
   licenseIds: string[];
-  action: "grant" | "revoke";
+  action: 'grant' | 'revoke';
   label: string;
   className?: string;
 }) {
-  const { run, pending, error } = useMutation();
+  const {run, pending, error} = useMutation();
   return (
     <span>
       <button
@@ -164,15 +170,33 @@ export function LicenseButton({
         onClick={() =>
           run(
             licenseIds.map(
-              (id) => () => send(`/api/licenses/${id}/${action}`, "POST"),
+              (id) => () => send(`/api/licenses/${id}/${action}`, 'POST'),
             ),
           )
         }
       >
-        {pending ? "Working…" : label}
+        {pending ? 'Working…' : label}
       </button>
-      {error && <span className="error"> {error}</span>}
+      {error && <span className='error'> {error}</span>}
     </span>
+  );
+}
+
+/** Mark one notification read — PATCH /api/notifications/:id/read. */
+export function MarkReadButton({id}: {id: string}) {
+  const {run, pending} = useMutation();
+  return (
+    <button
+      className='btn btn-secondary'
+      style={{fontSize: 12, padding: '2px 10px'}}
+      disabled={pending}
+      aria-label='Mark notification read'
+      onClick={() =>
+        run([() => send(`/api/notifications/${id}/read`, 'PATCH')])
+      }
+    >
+      {pending ? '…' : 'Dismiss'}
+    </button>
   );
 }
 
@@ -181,26 +205,34 @@ export function ReclaimButton({
   licenseIds,
   createdByTeam,
   label,
-  className = "btn btn-secondary",
+  className = 'btn btn-secondary',
 }: {
   licenseIds: string[];
-  createdByTeam: "finance" | "it";
+  createdByTeam: 'finance' | 'it';
   label: string;
   className?: string;
 }) {
-  const { run, pending, error } = useMutation();
+  const {run, pending, error} = useMutation();
   return (
     <span>
       <button
         className={className}
         disabled={pending || licenseIds.length === 0}
         onClick={() =>
-          run(licenseIds.map((id) => () => send("/api/reclaim-tasks", "POST", { licenseId: id, createdByTeam })))
+          run(
+            licenseIds.map(
+              (id) => () =>
+                send('/api/reclaim-tasks', 'POST', {
+                  licenseId: id,
+                  createdByTeam,
+                }),
+            ),
+          )
         }
       >
-        {pending ? "Working…" : label}
+        {pending ? 'Working…' : label}
       </button>
-      {error && <span className="error"> {error}</span>}
+      {error && <span className='error'> {error}</span>}
     </span>
   );
 }
@@ -213,22 +245,24 @@ export function ReclaimJobButton({
   primary,
 }: {
   taskId: string;
-  action: "start" | "complete" | "cancel";
+  action: 'start' | 'complete' | 'cancel';
   label: string;
   primary?: boolean;
 }) {
-  const { run, pending, error } = useMutation();
+  const {run, pending, error} = useMutation();
   return (
     <span>
       <button
-        className={primary ? "btn btn-primary" : "btn btn-secondary"}
-        style={{ fontSize: 13 }}
+        className={primary ? 'btn btn-primary' : 'btn btn-secondary'}
+        style={{fontSize: 13}}
         disabled={pending}
-        onClick={() => run([() => send(`/api/reclaim-tasks/${taskId}`, "PATCH", { action })])}
+        onClick={() =>
+          run([() => send(`/api/reclaim-tasks/${taskId}`, 'PATCH', {action})])
+        }
       >
         {label}
       </button>
-      {error && <span className="error"> {error}</span>}
+      {error && <span className='error'> {error}</span>}
     </span>
   );
 }
@@ -241,25 +275,30 @@ export function ReclaimJobButton({
 export function ReclaimAllButton({
   taskIds,
   label,
-  className = "btn btn-primary",
+  className = 'btn btn-primary',
 }: {
   taskIds: string[];
   label: string;
   className?: string;
 }) {
-  const { run, pending, error } = useMutation();
+  const {run, pending, error} = useMutation();
   return (
     <span>
       <button
         className={className}
         disabled={pending || taskIds.length === 0}
         onClick={() =>
-          run(taskIds.map((id) => () => send(`/api/reclaim-tasks/${id}`, "PATCH", { action: "complete" })))
+          run(
+            taskIds.map(
+              (id) => () =>
+                send(`/api/reclaim-tasks/${id}`, 'PATCH', {action: 'complete'}),
+            ),
+          )
         }
       >
-        {pending ? "Working…" : label}
+        {pending ? 'Working…' : label}
       </button>
-      {error && <span className="error"> {error}</span>}
+      {error && <span className='error'> {error}</span>}
     </span>
   );
 }
@@ -269,29 +308,29 @@ export function RaisePoForm({
   hires,
   catalog,
 }: {
-  hires: { id: string; name: string }[];
-  catalog: { id: string; name: string }[];
+  hires: {id: string; name: string}[];
+  catalog: {id: string; name: string}[];
 }) {
-  const { run, pending, error } = useMutation();
-  const [hireId, setHireId] = useState(hires[0]?.id ?? "");
-  const [assetCatalogId, setCatalogId] = useState(catalog[0]?.id ?? "");
+  const {run, pending, error} = useMutation();
+  const [hireId, setHireId] = useState(hires[0]?.id ?? '');
+  const [assetCatalogId, setCatalogId] = useState(catalog[0]?.id ?? '');
 
   return (
     <form
-      style={{ display: "flex", flexDirection: "column", gap: 10 }}
+      style={{display: 'flex', flexDirection: 'column', gap: 10}}
       onSubmit={(e) => {
         e.preventDefault();
         const serialTag = `PO-${assetCatalogId.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
         run([
-          () => send("/api/pos", "POST", { assetCatalogId, hireId, serialTag }),
+          () => send('/api/pos', 'POST', {assetCatalogId, hireId, serialTag}),
         ]);
       }}
     >
-      <div className="field">
-        <label htmlFor="po-hire">For</label>
+      <div className='field'>
+        <label htmlFor='po-hire'>For</label>
         <select
-          id="po-hire"
-          className="input"
+          id='po-hire'
+          className='input'
           value={hireId}
           onChange={(e) => setHireId(e.target.value)}
         >
@@ -302,11 +341,11 @@ export function RaisePoForm({
           ))}
         </select>
       </div>
-      <div className="field">
-        <label htmlFor="po-item">Item</label>
+      <div className='field'>
+        <label htmlFor='po-item'>Item</label>
         <select
-          id="po-item"
-          className="input"
+          id='po-item'
+          className='input'
           value={assetCatalogId}
           onChange={(e) => setCatalogId(e.target.value)}
         >
@@ -318,12 +357,12 @@ export function RaisePoForm({
         </select>
       </div>
       <button
-        className="btn btn-primary"
+        className='btn btn-primary'
         disabled={pending || !hireId || !assetCatalogId}
       >
-        {pending ? "Raising…" : "Raise PO"}
+        {pending ? 'Raising…' : 'Raise PO'}
       </button>
-      {error && <span className="error">{error}</span>}
+      {error && <span className='error'>{error}</span>}
     </form>
   );
 }
@@ -333,12 +372,12 @@ export function AssignSeatForm({
   hires,
   apps,
 }: {
-  hires: { id: string; name: string }[];
-  apps: { id: string; name: string; available: number; monthlyCost: number }[];
+  hires: {id: string; name: string}[];
+  apps: {id: string; name: string; available: number; monthlyCost: number}[];
 }) {
-  const { run, pending, error } = useMutation();
-  const [hireId, setHireId] = useState(hires[0]?.id ?? "");
-  const [appId, setAppId] = useState(apps[0]?.id ?? "");
+  const {run, pending, error} = useMutation();
+  const [hireId, setHireId] = useState(hires[0]?.id ?? '');
+  const [appId, setAppId] = useState(apps[0]?.id ?? '');
 
   const selected = apps.find((a) => a.id === appId);
   const monthly = selected?.monthlyCost ?? 0;
@@ -346,25 +385,25 @@ export function AssignSeatForm({
 
   return (
     <form
-      style={{ display: "flex", flexDirection: "column", gap: 12 }}
+      style={{display: 'flex', flexDirection: 'column', gap: 12}}
       onSubmit={(e) => {
         e.preventDefault();
-        run([() => send("/api/licenses", "POST", { hireId, appId })]);
+        run([() => send('/api/licenses', 'POST', {hireId, appId})]);
       }}
     >
       <div
         style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-end",
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-end',
           gap: 12,
         }}
       >
-        <div className="field" style={{ flex: "1 1 180px" }}>
-          <label htmlFor="seat-hire">For</label>
+        <div className='field' style={{flex: '1 1 180px'}}>
+          <label htmlFor='seat-hire'>For</label>
           <select
-            id="seat-hire"
-            className="input"
+            id='seat-hire'
+            className='input'
             value={hireId}
             onChange={(e) => setHireId(e.target.value)}
           >
@@ -375,38 +414,35 @@ export function AssignSeatForm({
             ))}
           </select>
         </div>
-        <div className="field" style={{ flex: "1 1 180px" }}>
-          <label htmlFor="seat-app">Seat</label>
+        <div className='field' style={{flex: '1 1 180px'}}>
+          <label htmlFor='seat-app'>Seat</label>
           <select
-            id="seat-app"
-            className="input"
+            id='seat-app'
+            className='input'
             value={appId}
             onChange={(e) => setAppId(e.target.value)}
           >
             {apps.map((a) => (
               <option key={a.id} value={a.id} disabled={a.available <= 0}>
-                {a.name}{" "}
-                {a.available <= 0 ? "(no seats left)" : `(${a.available} left)`}
+                {a.name}{' '}
+                {a.available <= 0 ? '(no seats left)' : `(${a.available} left)`}
               </option>
             ))}
           </select>
         </div>
         <button
-          className="btn btn-primary"
-          style={{ flex: "0 0 auto" }}
+          className='btn btn-primary'
+          style={{flex: '0 0 auto'}}
           disabled={pending || !hireId || !appId}
         >
-          {pending ? "Assigning…" : "Assign seat"}
+          {pending ? 'Assigning…' : 'Assign seat'}
         </button>
       </div>
-      <div
-        className="meter-head"
-        style={{ fontSize: 13, alignItems: "center" }}
-      >
-        <span className="muted">Adds to recurring burn</span>
-        <span className="count">{costText}</span>
+      <div className='meter-head' style={{fontSize: 13, alignItems: 'center'}}>
+        <span className='muted'>Adds to recurring burn</span>
+        <span className='count'>{costText}</span>
       </div>
-      {error && <span className="error">{error}</span>}
+      {error && <span className='error'>{error}</span>}
     </form>
   );
 }

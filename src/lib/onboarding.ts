@@ -19,8 +19,9 @@
 import {defaultIdGenerator, type IdGenerator} from './ids';
 import type {AssetService} from './assets';
 import type {LicenseService} from './licenses';
+import type {NotificationService} from './notifications';
 import type {Repository} from './repository';
-import type {AppCatalogItem, Task} from './types';
+import type {AppCatalogItem, Task, Team} from './types';
 
 export type ExecutionOutcome = 'granted' | 'ordered' | 'completed' | 'skipped';
 
@@ -48,17 +49,22 @@ export class OnboardingExecutor {
   private readonly repo: Repository;
   private readonly licenses: LicenseService;
   private readonly assets: AssetService;
+  private readonly notifications?: NotificationService;
   private readonly nextSerial: IdGenerator;
 
   constructor(
     repo: Repository,
     licenses: LicenseService,
     assets: AssetService,
-    options: {serialGenerator?: IdGenerator} = {},
+    options: {
+      serialGenerator?: IdGenerator;
+      notifications?: NotificationService;
+    } = {},
   ) {
     this.repo = repo;
     this.licenses = licenses;
     this.assets = assets;
+    this.notifications = options.notifications;
     this.nextSerial = options.serialGenerator ?? defaultIdGenerator;
   }
 
@@ -100,12 +106,47 @@ export class OnboardingExecutor {
     }
 
     const automated = executions.filter((e) => e.outcome !== 'skipped').length;
+
+    // Tell the owning teams what was provisioned, batched per hire so a single
+    // onboarding run shows up as one event per team inbox.
+    if (this.notifications) {
+      await this.notifyTeams(hire.name, hireId, executions);
+    }
+
     return {
       hireId,
       executions,
       automated,
       skipped: executions.length - automated,
     };
+  }
+
+  /** Post one notification per owning team summarizing what was automated. */
+  private async notifyTeams(
+    hireName: string,
+    hireId: string,
+    executions: TaskExecution[],
+  ): Promise<void> {
+    if (!this.notifications) return;
+    const done = executions.filter((e) => e.outcome !== 'skipped');
+    if (done.length === 0) return;
+
+    const byTeam = new Map<Team, string[]>();
+    for (const e of done) {
+      const team = e.ownerTeam as Team;
+      const list = byTeam.get(team) ?? [];
+      list.push(e.detail);
+      byTeam.set(team, list);
+    }
+
+    const batchId = `onboard_${hireId}`;
+    for (const [team, details] of byTeam) {
+      await this.notifications.notify({
+        targetTeam: team,
+        message: `${hireName}: ${details.join(', ')}.`,
+        batchId,
+      });
+    }
   }
 
   private async runTask(
