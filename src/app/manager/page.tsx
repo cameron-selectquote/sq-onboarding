@@ -1,6 +1,7 @@
 import { getServices } from "@/server/store";
 import { hireProgress } from "@/lib/progress";
 import { PageHead, Shell } from "../_components/Shell";
+import { ClickCard } from "../_components/actions";
 import { shortDate } from "../_components/format";
 
 export const dynamic = "force-dynamic";
@@ -22,29 +23,31 @@ export default async function Manager() {
       <PageHead eyebrow={`Team ${manager?.name.split(" ")[0] ?? ""}`} title={`${WORDS[cards.length] ?? `${cards.length} people`} on the way`} />
       <div className="hire-grid">
         {cards.map(({ hire, progress }) => (
-          <article key={hire.id} className="hire-card">
-            <div
-              className="ring"
-              role="img"
-              aria-label={`${progress.pct}% done`}
-              style={{ background: `conic-gradient(var(--color-accent-2-500) 0 ${progress.pct}%, var(--color-neutral-200) 0)` }}
-            >
-              <div className="ring-inner">{progress.pct}%</div>
-            </div>
-            <div className="hire-body">
-              <div className="hire-name">
-                <span>{hire.name}</span>
-                <span className="who-sub">{shortDate(hire.startDate)}</span>
+          <ClickCard key={hire.id} href={`/manager/${hire.id}`}>
+            <article className="hire-card" title="Click to see tasks">
+              <div
+                className="ring"
+                role="img"
+                aria-label={`${progress.pct}% done`}
+                style={{ background: `conic-gradient(var(--color-accent-2-500) 0 ${progress.pct}%, var(--color-neutral-200) 0)` }}
+              >
+                <div className="ring-inner">{progress.pct}%</div>
               </div>
-              <span style={{ fontSize: 13 }}>
-                {progress.done} of {progress.total} tasks done · {hire.roleName}
-              </span>
-              <div className={progress.blocked ? "next is-blocked" : "next"}>
-                <span className="next-label">{progress.blocked ? "Blocked" : progress.next ? "Up next" : "Ready"}</span>
-                <span className="next-value">{progress.next?.title ?? "All set for day one"}</span>
+              <div className="hire-body">
+                <div className="hire-name">
+                  <span>{hire.name}</span>
+                  <span className="who-sub">{shortDate(hire.startDate)}</span>
+                </div>
+                <span style={{ fontSize: 13 }}>
+                  {progress.done} of {progress.total} tasks done · {hire.roleName}
+                </span>
+                <div className={progress.blocked ? "next is-blocked" : "next"}>
+                  <span className="next-label">{progress.blocked ? "Blocked" : progress.next ? "Up next" : "Ready"}</span>
+                  <span className="next-value">{progress.next?.title ?? "All set for day one"}</span>
+                </div>
               </div>
-            </div>
-          </article>
+            </article>
+          </ClickCard>
         ))}
       </div>
     </Shell>

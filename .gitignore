@@ -41,3 +41,6 @@ next-env.d.ts
 
 # workflow agent artifacts (findings/review reports)
 /.agents/
+
+# ...but keep the committed template (no secrets, documents required vars)
+!.env.example

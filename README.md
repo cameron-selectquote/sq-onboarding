@@ -104,9 +104,23 @@ Available endpoints: `POST /api/hires/import`, `GET /api/hires`,
 `GET /api/openapi`, `POST /api/ai/match-template`, `GET /api/genie`,
 `POST /api/genie`.
 
-## Onboarding Genie (Strands Agents)
+### Resetting the seed data (dev only)
 
-The Onboarding Genie is an AI agent built on the
+The store persists to a SQLite file, so a demo run leaves it dirty. To get back
+to the first-boot baseline (red reclaim banner) without restarting the server:
+
+```bash
+curl -X POST http://localhost:3000/api/dev/reset
+```
+
+It wipes every table and reloads the committed seed, returning per-collection
+row counts. **Dev-only:** the route refuses with `404` when
+`NODE_ENV === 'production'`, so it can't touch real data — but it has no other
+auth gate, so don't expose a non-production build to anything you care about.
+
+## Genie (Strands Agents)
+
+Genie is an AI agent built on the
 [Strands Agents SDK](https://strandsagents.com) (`@strands-agents/sdk`). It
 guides HR/managers from a candidate name to a published 30-day onboarding plan.
 Find it at **`/specialist/genie`**.

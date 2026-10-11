@@ -2,7 +2,7 @@ import { getServices } from "@/server/store";
 import { hireProgress, teamCell, type TeamCell } from "@/lib/progress";
 import type { Team } from "@/lib/types";
 import { Avatar, Kpi, PageHead, Shell } from "../../_components/Shell";
-import { DoubleClickCard } from "../../_components/actions";
+import { ClickCard } from "../../_components/actions";
 import { shortDate, teamLabel } from "../../_components/format";
 import { SPECIALIST_NAV } from "../nav";
 
@@ -59,8 +59,8 @@ export default async function SpecialistHires() {
           <span>Start</span>
         </div>
         {rows.map(({ hire, tasks: mine }) => (
-          <DoubleClickCard key={hire.id} href={`/specialist/hires/${hire.id}`}>
-            <div className="row row-matrix" style={{ borderTop: "1px solid var(--color-divider)" }} title="Double-click to open">
+          <ClickCard key={hire.id} href={`/specialist/hires/${hire.id}`}>
+            <div className="row row-matrix" style={{ borderTop: "1px solid var(--color-divider)" }} title="Click to open">
               <div className="who">
                 <Avatar name={hire.name} />
                 <div className="who-text">
@@ -73,7 +73,7 @@ export default async function SpecialistHires() {
               ))}
               <span style={{ fontSize: 13 }}>{shortDate(hire.startDate)}</span>
             </div>
-          </DoubleClickCard>
+          </ClickCard>
         ))}
       </div>
     </Shell>
