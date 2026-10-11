@@ -1,20 +1,27 @@
 /**
  * Demo session token: `base64url(json).base64url(hmac-sha256)`.
  *
- * Deliberately tiny. A signed cookie says which persona you logged in as (and,
- * for a new hire, which hire). No user table, no refresh tokens, no SSO.
+ * Deliberately tiny. A signed cookie says who signed in, their real role, the
+ * role they are viewing as (only admins may differ), and — when viewing as an
+ * employee — which hire. No user table, no refresh tokens, no SSO.
  *
  * Web Crypto only, so it runs in middleware, route handlers, and Jest alike.
  * Pure: the caller passes the secret and the current time.
  */
-import { isPersona, type Persona } from "./access";
+import { canSwitchRole, isAppRole, type AppRole } from "./access";
 
 export const SESSION_COOKIE = "provision_session";
 export const SESSION_TTL_SECONDS = 12 * 60 * 60;
 
 export interface Session {
-  persona: Persona;
-  /** Set only for the `hire` persona: whose checklist they may see. */
+  username: string;
+  /** Display name. */
+  name: string;
+  /** The role the account really has. */
+  role: AppRole;
+  /** The role access is checked against. Equals `role` unless an admin switched. */
+  viewAs: AppRole;
+  /** Set only while viewing as an employee: whose checklist they see. */
   hireId: string | null;
   /** Expiry, unix seconds. */
   exp: number;
@@ -76,10 +83,13 @@ export async function verifySession(
     return null;
   }
   if (typeof data !== "object" || data === null) return null;
-  const { persona, hireId, exp } = data as Record<string, unknown>;
-  if (!isPersona(persona) || typeof exp !== "number" || exp <= nowSeconds) return null;
-  if (persona === "hire") return typeof hireId === "string" ? { persona, hireId, exp } : null;
-  return hireId === null ? { persona, hireId, exp } : null;
+  const { username, name, role, viewAs, hireId, exp } = data as Record<string, unknown>;
+  if (typeof username !== "string" || typeof name !== "string" || typeof exp !== "number") return null;
+  if (!isAppRole(role) || !isAppRole(viewAs) || exp <= nowSeconds) return null;
+  if (viewAs !== role && !canSwitchRole(role)) return null;
+  const hireOk = viewAs === "employee" ? typeof hireId === "string" && hireId !== "" : hireId === null;
+  if (!hireOk) return null;
+  return { username, name, role, viewAs, hireId: hireId as string | null, exp };
 }
 
 /** Constant-time password check (compares SHA-256 digests, so length doesn't leak). */

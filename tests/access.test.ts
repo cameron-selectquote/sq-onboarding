@@ -1,77 +1,121 @@
 import {
-  DEFAULT_PERSONA,
-  PERSONAS,
+  ROLES,
   canAccess,
   canCallApi,
   canOpenPath,
+  canSwitchRole,
   homePathFor,
-  parsePersona,
+  isAppRole,
+  navFor,
   viewForPath,
   viewsFor,
 } from "@/lib/access";
+import { DEMO_ACCOUNTS, findAccount } from "@/lib/accounts";
 
-describe("role-view access", () => {
-  it("only finance sees the finance view", () => {
-    for (const persona of PERSONAS) {
-      expect(canAccess(persona, "finance")).toBe(persona === "finance");
+describe("role views", () => {
+  it("only admin sees finance, the board, and the team queues", () => {
+    for (const role of ROLES) {
+      for (const view of ["finance", "specialist", "team:it", "team:vendor", "team:facilities", "api-docs"] as const) {
+        expect(canAccess(role, view)).toBe(role === "admin");
+      }
     }
   });
 
-  it("a new hire sees only their checklist", () => {
-    expect(viewsFor("hire")).toEqual(["myonboarding"]);
+  it("manager sees home and the manager report", () => {
+    expect(viewsFor("manager")).toEqual(["home", "manager"]);
   });
 
-  it("team members see only their own queue", () => {
-    expect(canAccess("it", "team:it")).toBe(true);
-    expect(canAccess("it", "team:vendor")).toBe(false);
-    expect(canAccess("vendor", "specialist")).toBe(false);
+  it("employee sees home and their checklist", () => {
+    expect(viewsFor("employee")).toEqual(["home", "myonboarding"]);
   });
 
-  it("specialist runs the board and every team queue", () => {
-    expect(canAccess("specialist", "specialist")).toBe(true);
-    expect(canAccess("specialist", "team:it")).toBe(true);
-    expect(canAccess("specialist", "team:vendor")).toBe(true);
-    expect(canAccess("specialist", "team:facilities")).toBe(true);
+  it("every role lands on /home", () => {
+    for (const role of ROLES) expect(homePathFor(role)).toBe("/home");
   });
 
-  it("falls back to the default persona for unknown cookie values", () => {
-    expect(parsePersona(undefined)).toBe(DEFAULT_PERSONA);
-    expect(parsePersona("root")).toBe(DEFAULT_PERSONA);
-    expect(parsePersona("finance")).toBe("finance");
+  it("validates role values", () => {
+    expect(isAppRole("admin")).toBe(true);
+    expect(isAppRole("finance")).toBe(false);
+    expect(isAppRole(undefined)).toBe(false);
   });
 
-  it("every persona has a home view it can access", () => {
-    expect(homePathFor("finance")).toBe("/finance");
-    expect(homePathFor("hire")).toBe("/myonboarding");
-    expect(homePathFor("vendor")).toBe("/team/vendor");
+  it("only admins may switch roles", () => {
+    expect(canSwitchRole("admin")).toBe(true);
+    expect(canSwitchRole("manager")).toBe(false);
+    expect(canSwitchRole("employee")).toBe(false);
   });
 });
 
 describe("path access", () => {
-  it("maps page paths to role views", () => {
+  it("maps page paths to views", () => {
+    expect(viewForPath("/home")).toBe("home");
     expect(viewForPath("/finance/reclaim")).toBe("finance");
     expect(viewForPath("/team/it")).toBe("team:it");
     expect(viewForPath("/specialist/genie")).toBe("specialist");
+    expect(viewForPath("/api-docs")).toBe("api-docs");
     expect(viewForPath("/financeX")).toBeNull();
-    expect(viewForPath("/api-docs")).toBeNull();
   });
 
-  it("a new hire can open only their checklist", () => {
-    expect(canOpenPath("hire", "/myonboarding")).toBe(true);
-    for (const p of ["/finance", "/specialist", "/manager/hire_1", "/team/it", "/api-docs"]) {
-      expect(canOpenPath("hire", p)).toBe(false);
+  it("employee can open only home and their checklist", () => {
+    expect(canOpenPath("employee", "/home")).toBe(true);
+    expect(canOpenPath("employee", "/myonboarding")).toBe(true);
+    for (const p of ["/finance", "/specialist", "/manager", "/manager/hire_1", "/team/it", "/api-docs", "/unknown"]) {
+      expect(canOpenPath("employee", p)).toBe(false);
     }
   });
 
-  it("staff follow their role views and can open shared pages", () => {
-    expect(canOpenPath("finance", "/finance/reclaim")).toBe(true);
-    expect(canOpenPath("it", "/finance")).toBe(false);
-    expect(canOpenPath("specialist", "/myonboarding")).toBe(true);
-    expect(canOpenPath("vendor", "/api-docs")).toBe(true);
+  it("manager can open the manager drill-down but not finance", () => {
+    expect(canOpenPath("manager", "/manager/hire_1")).toBe(true);
+    expect(canOpenPath("manager", "/finance")).toBe(false);
+    expect(canOpenPath("manager", "/myonboarding")).toBe(false);
   });
 
-  it("a new hire can call no API; staff can call all", () => {
-    expect(canCallApi("hire")).toBe(false);
-    for (const p of PERSONAS.filter((p) => p !== "hire")) expect(canCallApi(p)).toBe(true);
+  it("admin can open everything", () => {
+    for (const p of ["/home", "/finance/reclaim", "/specialist/hires", "/team/facilities", "/manager", "/myonboarding", "/api-docs"]) {
+      expect(canOpenPath("admin", p)).toBe(true);
+    }
+  });
+
+  it("employee can call no API; admin and manager can", () => {
+    expect(canCallApi("employee")).toBe(false);
+    expect(canCallApi("manager")).toBe(true);
+    expect(canCallApi("admin")).toBe(true);
+  });
+});
+
+describe("sidebar nav", () => {
+  const hrefs = (role: (typeof ROLES)[number]) => navFor(role).flatMap((s) => s.items.map((i) => i.href));
+
+  it("only lists pages the role can open", () => {
+    for (const role of ROLES) {
+      for (const href of hrefs(role)) expect(canOpenPath(role, href.split("?")[0]!)).toBe(true);
+    }
+  });
+
+  it("employee nav has no finance or admin pages", () => {
+    expect(hrefs("employee")).toEqual(["/home", "/myonboarding"]);
+  });
+
+  it("admin nav reaches every section", () => {
+    const all = hrefs("admin");
+    for (const href of ["/home", "/specialist", "/finance", "/finance/reclaim", "/team/it", "/manager", "/myonboarding", "/api-docs"]) {
+      expect(all).toContain(href);
+    }
+  });
+});
+
+describe("demo accounts", () => {
+  it("has one account per role", () => {
+    expect(DEMO_ACCOUNTS.map((a) => a.role).sort()).toEqual([...ROLES].sort());
+  });
+
+  it("only the employee account is tied to a hire", () => {
+    for (const a of DEMO_ACCOUNTS) expect(a.hireId !== null).toBe(a.role === "employee");
+  });
+
+  it("finds accounts case-insensitively, ignoring whitespace", () => {
+    expect(findAccount(" Admin ")?.role).toBe("admin");
+    expect(findAccount("nobody")).toBeNull();
+    expect(findAccount("")).toBeNull();
   });
 });

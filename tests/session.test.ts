@@ -2,20 +2,22 @@ import { SESSION_TTL_SECONDS, passwordMatches, signSession, verifySession, type 
 
 const SECRET = "test-secret";
 const NOW = 1_800_000_000;
-const staff: Session = { persona: "finance", hireId: null, exp: NOW + SESSION_TTL_SECONDS };
-const hire: Session = { persona: "hire", hireId: "hire_1", exp: NOW + 60 };
+const staff: Session = { username: "admin", name: "Avery Admin", role: "admin", viewAs: "admin", hireId: null, exp: NOW + SESSION_TTL_SECONDS };
+const hire: Session = { username: "employee", name: "Riley Chen", role: "employee", viewAs: "employee", hireId: "hire_1", exp: NOW + 60 };
+const adminAsEmployee: Session = { ...staff, viewAs: "employee", hireId: "hire_2" };
 
 describe("session tokens", () => {
-  it("round-trips a staff and a hire session", async () => {
-    expect(await verifySession(await signSession(staff, SECRET), SECRET, NOW)).toEqual(staff);
-    expect(await verifySession(await signSession(hire, SECRET), SECRET, NOW)).toEqual(hire);
+  it("round-trips admin, employee, and admin-viewing-as-employee sessions", async () => {
+    for (const s of [staff, hire, adminAsEmployee]) {
+      expect(await verifySession(await signSession(s, SECRET), SECRET, NOW)).toEqual(s);
+    }
   });
 
   it("rejects a token signed with another secret", async () => {
     expect(await verifySession(await signSession(staff, "other"), SECRET, NOW)).toBeNull();
   });
 
-  it("rejects a tampered payload (e.g. hire promoting itself to finance)", async () => {
+  it("rejects a tampered payload (e.g. employee promoting itself to admin)", async () => {
     const token = await signSession(hire, SECRET);
     const [, sig] = token.split(".");
     const forged = Buffer.from(JSON.stringify({ ...staff })).toString("base64url");
@@ -35,9 +37,15 @@ describe("session tokens", () => {
 
   it("rejects signed payloads with an invalid shape", async () => {
     const bad = [
-      { persona: "root", hireId: null, exp: NOW + 60 },
-      { persona: "hire", hireId: null, exp: NOW + 60 },
-      { persona: "finance", hireId: "hire_1", exp: NOW + 60 },
+      { ...staff, role: "root", viewAs: "root" },
+      { ...staff, viewAs: "finance" },
+      { ...hire, hireId: null },
+      { ...hire, hireId: "" },
+      { ...staff, hireId: "hire_1" },
+      // Only an admin may view as another role.
+      { ...hire, viewAs: "admin", hireId: null },
+      { username: "manager", name: "Morgan", role: "manager", viewAs: "employee", hireId: "hire_1", exp: NOW + 60 },
+      { ...staff, username: 7 },
     ];
     for (const s of bad) {
       expect(await verifySession(await signSession(s as unknown as Session, SECRET), SECRET, NOW)).toBeNull();

@@ -19,7 +19,7 @@ export default async function Manager() {
     .sort((a, b) => a.hire.startDate.localeCompare(b.hire.startDate));
 
   return (
-    <Shell nav={[{ href: "/manager", label: "My hires" }]} active="/manager" who={`Manager · ${manager?.name ?? "—"}`}>
+    <Shell active="/manager">
       <PageHead eyebrow={`Team ${manager?.name.split(" ")[0] ?? ""}`} title={`${WORDS[cards.length] ?? `${cards.length} people`} on the way`} />
       <div className="hire-grid">
         {cards.map(({ hire, progress }) => (

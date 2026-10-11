@@ -36,11 +36,7 @@ export default async function ManagerHireDetail({ params }: { params: Promise<{ 
   const progress = hireProgress(tasks);
 
   return (
-    <Shell
-      nav={[{ href: "/manager", label: "My hires" }]}
-      active="/manager"
-      who={`Manager · ${manager.name}`}
-    >
+    <Shell active="/manager">
       <PageHead eyebrow={`Starts ${longDate(hire.startDate)}`} title={hire.name}>
         <span className={hireStatusPill(status)}>{hireStatusLabel(status)}</span>
       </PageHead>
