@@ -9,6 +9,10 @@
 set -euo pipefail
 
 : "${DEPLOY_HOST:?}" "${RELEASE:?}" "${PROD_URL:?}"
+# Auth fails closed in production without these (nobody can log in), so refuse
+# to ship a release that would be unusable.
+: "${AUTH_SECRET:?Set AUTH_SECRET in the Production environment}"
+: "${DEMO_PASSWORD:?Set DEMO_PASSWORD in the Production environment}"
 REMOTE="deploy@${DEPLOY_HOST}"
 ROOT=/srv/sq-onboarding
 DEST="$ROOT/releases/$RELEASE"
@@ -25,7 +29,7 @@ rsync -az --delete .next/standalone/ "$REMOTE:$DEST/"
 # server-setup.sh). CI is the source of truth: the file is rebuilt from these
 # vars on every deploy, so manual edits on the box are overwritten. Unset/empty
 # vars are omitted. Piped over stdin (not argv) so secrets never show in `ps`.
-RUNTIME_ENV_VARS=(AWS_BEARER_TOKEN_BEDROCK AWS_REGION GENIE_MODEL_ID GENIE_DEBUG)
+RUNTIME_ENV_VARS=(AUTH_SECRET DEMO_PASSWORD AWS_BEARER_TOKEN_BEDROCK AWS_REGION GENIE_MODEL_ID GENIE_DEBUG)
 render_env() {
   local name
   for name in "${RUNTIME_ENV_VARS[@]}"; do
@@ -44,7 +48,16 @@ PREV=$(ssh "$REMOTE" "set -e
   echo \"\$prev\"")
 echo "Deployed $RELEASE (previous: ${PREV:-none})"
 
-if curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "$PROD_URL/api/hires" >/dev/null; then
+# Smoke test: the app is up (public health check) and the auth gate is live
+# (a protected API rejects an anonymous request with 401).
+smoke() {
+  curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "$PROD_URL/api/health" >/dev/null || return 1
+  local code
+  code=$(curl -sS -o /dev/null -w '%{http_code}' "$PROD_URL/api/hires") || return 1
+  [[ "$code" == 401 ]] || { echo "::error::Expected 401 from /api/hires without a session, got $code"; return 1; }
+}
+
+if smoke; then
   echo "Smoke test passed"
   # Prune old releases (never the live one).
   ssh "$REMOTE" "cd $ROOT/releases && ls -1t | grep -vxF '$RELEASE' | tail -n +$KEEP | xargs -r rm -rf"
