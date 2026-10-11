@@ -31,10 +31,8 @@ export async function POST(req: Request) {
     history?: {role: 'user' | 'genie'; text: string}[];
     confirmedCandidateId?: string | null;
     plan?: unknown;
-    offboard?: unknown;
     templateDraft?: unknown;
-    genieSession?: unknown;
-    seatRevoke?: unknown;
+    confirm?: unknown;
   };
   if (!body.message || !body.message.trim()) {
     return NextResponse.json({error: 'message is required'}, {status: 400});
@@ -49,15 +47,12 @@ export async function POST(req: Request) {
       scope,
       history: Array.isArray(body.history) ? body.history : [],
       confirmedCandidateId: body.confirmedCandidateId ?? null,
-      // The client round-trips the pending plan + offboard + template state,
-      // plus any paused human-in-the-loop session awaiting confirmation.
+      // The client round-trips the pending plan + template state, plus any
+      // previewed destructive action awaiting a yes/no confirmation.
       plan: (body.plan as GenieTurnInput['plan']) ?? null,
-      offboard: (body.offboard as GenieTurnInput['offboard']) ?? null,
       templateDraft:
         (body.templateDraft as GenieTurnInput['templateDraft']) ?? null,
-      genieSession:
-        (body.genieSession as GenieTurnInput['genieSession']) ?? null,
-      seatRevoke: (body.seatRevoke as GenieTurnInput['seatRevoke']) ?? null,
+      confirm: (body.confirm as GenieTurnInput['confirm']) ?? null,
     });
     return NextResponse.json(reply);
   } catch (err) {

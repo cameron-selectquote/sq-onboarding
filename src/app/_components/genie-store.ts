@@ -30,12 +30,9 @@ export interface GenieState {
   turns: StoredTurn[];
   confirmedCandidateId: string | null;
   plan: unknown;
-  offboard: unknown;
   templateDraft: unknown;
-  /** Paused live-agent session awaiting a human-in-the-loop confirmation. */
-  genieSession: unknown;
-  /** A single-seat revoke previewed last turn, awaiting a yes/no. */
-  seatRevoke: unknown;
+  /** A previewed destructive action awaiting the user's yes/no confirmation. */
+  confirm: unknown;
   engine: 'strands-bedrock' | 'scripted' | null;
 }
 
@@ -45,10 +42,8 @@ function initialState(): GenieState {
     turns: [],
     confirmedCandidateId: null,
     plan: null,
-    offboard: null,
     templateDraft: null,
-    genieSession: null,
-    seatRevoke: null,
+    confirm: null,
     engine: null,
   };
 }

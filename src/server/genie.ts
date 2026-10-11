@@ -16,8 +16,6 @@
  */
 
 import {Agent, configureLogging, tool} from '@strands-agents/sdk';
-import {InterruptResponseContent} from '@strands-agents/sdk';
-import type {Interrupt, Snapshot} from '@strands-agents/sdk';
 import {z} from 'zod';
 import {
   CHECKLIST_CATEGORY_LABEL,
@@ -40,14 +38,12 @@ import type {OffboardPreview, OffboardResult} from '@/lib/offboarding';
 import {monthlyCost} from '@/lib/finance';
 import {
   classifyConfirmation,
-  isApproved,
   parseCreateTemplateIntent,
   parseListCandidatesIntent,
   parseListTemplatesIntent,
   parseOffboardIntent,
   parseRemoveSeatIntent,
   parseViewIntent,
-  type HitlApproval,
 } from '@/lib/intent';
 import {
   getCompanyInfo,
@@ -329,56 +325,13 @@ async function buildTools(role: GenieRole, scope: GenieScopeInput) {
   const executeOffboarding = tool({
     name: 'executeOffboarding',
     description:
-      "DESTRUCTIVE. Revoke the hire's software seats and return their hardware (recovers spend; writes crediting ledger entries). ALWAYS call previewOffboarding first and show the user what will be reclaimed. You do NOT need to collect a yes/no yourself — this tool pauses for an explicit human confirmation via the human-in-the-loop gate before doing anything, so just call it with the hireId once the user has asked to offboard that person. If the human declines, the tool reports it was cancelled and nothing changes.",
+      "DESTRUCTIVE. Revoke the hire's software seats and return their hardware (recovers spend; writes crediting ledger entries). The human-in-the-loop confirmation is handled OUTSIDE the agent (the chat gate previews the reclaim and gets an explicit yes/no before you are ever invoked), so by the time you call this the action is already approved. Call previewOffboarding first for the breakdown, then this with the hireId.",
     inputSchema: z.object({
       hireId: z
         .string()
         .describe('The hire id to offboard (from previewOffboarding)'),
     }),
-    callback: async ({hireId}, context) => {
-      // Human-in-the-loop: pause the agent and require an explicit human
-      // approval before this destructive action runs. Strands' interrupt()
-      // throws on first execution (halting the turn with stopReason
-      // 'interrupt'); on resume it returns the human's response. Confirmation
-      // is therefore owned by trusted code + the human, never the model.
-      const preview = await offboarding.preview(hireId);
-      const approval = context?.interrupt<HitlApproval>({
-        name: `confirm_offboard_${hireId}`,
-        reason: {
-          kind: 'offboard',
-          hireId: preview.hireId,
-          hireName: preview.hireName,
-          seats: preview.seats.map((s) => ({
-            app: s.appName,
-            monthly: Math.round(s.monthly),
-          })),
-          assets: preview.assets.map((a) => ({
-            name: a.name,
-            serial: a.serialTag,
-            residual: Math.round(a.residual),
-          })),
-          monthlyRecovered: Math.round(preview.monthlyRecovered),
-          oneTimeRecovered: Math.round(preview.oneTimeRecovered),
-          prompt: `Offboard ${preview.hireName}? This revokes their seats and returns their hardware.`,
-        },
-      });
-
-      // No ToolContext (shouldn't happen on the live path) — refuse rather than
-      // run a destructive action unconfirmed.
-      if (!context) {
-        return {
-          cancelled: true,
-          message: 'Could not request confirmation; nothing was changed.',
-        };
-      }
-      if (!isApproved(approval)) {
-        return {
-          cancelled: true,
-          hireName: preview.hireName,
-          message: `Cancelled — ${preview.hireName} was not offboarded. Nothing changed.`,
-        };
-      }
-
+    callback: async ({hireId}) => {
       const r = await offboarding.execute(hireId);
       return {
         hireId: r.hireId,
@@ -768,44 +721,11 @@ export interface TemplateTableCard {
   }[];
 }
 
-/**
- * A human-in-the-loop confirmation card. Rendered when the live agent pauses on
- * a destructive action (via Strands `interrupt()`), showing what will happen
- * and offering Confirm / Cancel. The client answers by sending the user's
- * yes/no back on the next turn to resume the paused agent.
- */
-export interface HitlCard {
-  type: 'hitl';
-  /** What kind of action is awaiting approval (today: offboard). */
-  kind: 'offboard';
-  prompt: string;
-  hireName: string;
-  seats: {label: string; monthly: number}[];
-  assets: {label: string; residual: number}[];
-  monthlyRecovered: number;
-  oneTimeRecovered: number;
-}
-
 export type GenieCard =
   | ReclaimCard
   | StatusCard
   | CandidateTableCard
-  | TemplateTableCard
-  | HitlCard;
-
-/**
- * An opaque, round-tripped agent session for resuming a paused (interrupted)
- * live-agent turn. Carries the serialized Strands snapshot plus the pending
- * interrupt id, and the role/scope needed to rebuild the same tool set on
- * resume. The client holds it between turns and sends it back, exactly like
- * `plan`/`offboard`/`templateDraft`. Only present on the live Bedrock path.
- */
-export interface GenieSession {
-  snapshot: Snapshot;
-  interruptId: string;
-  role: GenieRole;
-  scope: GenieScopeInput;
-}
+  | TemplateTableCard;
 
 /**
  * An in-progress new-template build, carried across turns. The Genie asks for
@@ -831,18 +751,14 @@ export interface GenieReply {
    * The client holds it and sends it back next turn so adjustments persist.
    */
   plan?: PendingPlan | null;
-  /** A previewed-but-unconfirmed offboard, carried across turns. */
-  offboard?: PendingOffboard | null;
   /** An in-progress new-template build, carried across turns. */
   templateDraft?: TemplateDraft | null;
   /**
-   * A paused live-agent session awaiting a human-in-the-loop confirmation.
-   * Round-tripped so the next turn can resume the interrupted agent. Null
-   * unless the agent is currently paused on a destructive action.
+   * A previewed destructive action (offboard or seat revoke) awaiting the
+   * user's yes/no. Round-tripped so the next turn's reply confirms or cancels
+   * it. Null unless a removal is currently awaiting confirmation.
    */
-  genieSession?: GenieSession | null;
-  /** A single-seat revoke previewed this turn, awaiting a yes/no next turn. */
-  seatRevoke?: PendingSeatRevoke | null;
+  confirm?: PendingConfirmation | null;
   /**
    * An optional structured card to render alongside the message (recovered
    * spend on offboard). Not round-tripped — it's render-only for this turn.
@@ -856,20 +772,31 @@ export interface GenieHistoryTurn {
   text: string;
 }
 
-/** A destructive offboard awaiting the user's explicit confirmation. */
-export interface PendingOffboard {
-  hireId: string;
-  hireName: string;
-}
-
-/** A single-seat revoke awaiting the user's explicit confirmation. */
-export interface PendingSeatRevoke {
-  licenseId: string;
-  hireName: string;
-  appName: string;
-  /** Recurring $/mo the revoke would credit back. */
-  monthly: number;
-}
+/**
+ * One previewed destructive action awaiting the user's explicit yes/no. Every
+ * removal (offboard a hire, revoke a single seat) is gated through this single
+ * confirmation shape so there's one human-in-the-loop path on both engines.
+ * Discriminated by `action`; `label` is the human description shown in the
+ * re-ask prompt. The ids are what the executor needs.
+ */
+export type PendingConfirmation =
+  | {
+      action: 'offboard';
+      hireId: string;
+      hireName: string;
+      /** e.g. "offboard Quinn Baker (revoke seats + return hardware)". */
+      label: string;
+    }
+  | {
+      action: 'revokeSeat';
+      licenseId: string;
+      hireName: string;
+      appName: string;
+      /** Recurring $/mo the revoke credits back. */
+      monthly: number;
+      /** e.g. "revoke Riley Chen's GitHub seat". */
+      label: string;
+    };
 
 export interface GenieTurnInput {
   message: string;
@@ -891,18 +818,14 @@ export interface GenieTurnInput {
   confirmedCandidateId?: string | null;
   /** The pending plan from the previous turn, if any. */
   plan?: PendingPlan | null;
-  /** A previewed offboard waiting on a yes/no, carried across turns. */
-  offboard?: PendingOffboard | null;
   /** An in-progress template build from the previous turn, if any. */
   templateDraft?: TemplateDraft | null;
   /**
-   * A paused live-agent session from the previous turn, if the agent stopped
-   * on a human-in-the-loop interrupt. When present, this turn's message is the
-   * human's confirmation and resumes that agent. The client round-trips it.
+   * A previewed destructive action from the previous turn awaiting a yes/no.
+   * When present, this turn's message is the human's confirmation. The client
+   * round-trips it.
    */
-  genieSession?: GenieSession | null;
-  /** A single-seat revoke previewed last turn, awaiting this turn's yes/no. */
-  seatRevoke?: PendingSeatRevoke | null;
+  confirm?: PendingConfirmation | null;
 }
 
 /** Resolve the effective role for a turn, defaulting to admin (full access). */
@@ -928,25 +851,27 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
   const scope = scopeOf(input);
   const may = (handler: GeniePreHandler) => allowsPreHandler(role, handler);
 
-  // RESUME: if the live agent paused last turn on a human-in-the-loop interrupt
-  // (a destructive action awaiting approval), this turn's message is the human's
-  // yes/no. Resume the interrupted agent with that answer before anything else.
-  if (input.genieSession && hasBedrockCreds()) {
-    return resumeInterruptedAgent(input, input.genieSession);
-  }
-
-  // CONFIRM a previewed single-seat revoke before anything else, on BOTH
-  // engines — a removal never runs without an explicit human yes. Runs first so
-  // the yes/no can't be mistaken for a new request.
-  if (may('removeSeat') && input.seatRevoke) {
-    const decided = await resolveRemoveSeat(input);
-    if (decided) return decided;
+  // CONFIRM-FIRST: every destructive action (offboard, revoke a seat) is gated
+  // through ONE deterministic human-in-the-loop flow — resolveConfirmation —
+  // that works identically on both engines. It runs before everything else so:
+  //  - a pending yes/no from last turn lands on the confirmation (not a new
+  //    request), and
+  //  - a fresh "offboard X" / "revoke X's seat" previews + asks, and never acts
+  //    on the first turn.
+  // The removal only runs on an explicit affirmative, in trusted code — never
+  // left to the model, so this is deterministic even when Bedrock is live.
+  if (may('offboard') || may('removeSeat')) {
+    const confirmed = await resolveConfirmation(input, {
+      allowOffboard: may('offboard'),
+      allowRevokeSeat: may('removeSeat'),
+    });
+    if (confirmed) return confirmed;
   }
 
   // The deterministic pre-handlers below run trusted, mutating/cost-bearing
-  // flows (template builder, offboard gate, candidate list, seat removal,
-  // status lookup). Each is gated by the role's policy so a manager or employee
-  // can never reach a path outside their scope — on EITHER engine.
+  // flows (template builder, candidate list, status lookup). Each is gated by
+  // the role's policy so a manager or employee can never reach a path outside
+  // their scope — on EITHER engine.
 
   // Building a new template is a multi-step, one-question-at-a-time flow run
   // deterministically on BOTH engines. If a draft is already in play, this
@@ -964,30 +889,13 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
     if (templates) return templates;
   }
 
-  // Destructive offboarding confirmation:
-  //  - LIVE (Bedrock) path: the agent's executeOffboarding tool raises a
-  //    Strands human-in-the-loop interrupt() for approval, so we let the agent
-  //    drive and do NOT short-circuit here.
-  //  - OFFLINE (scripted) path: no agent exists to interrupt, so the trusted
-  //    deterministic gate owns the yes/no confirmation instead.
-  if (may('offboard') && !hasBedrockCreds()) {
-    const gated = await resolveOffboardConfirmation(input);
-    if (gated) return gated;
-  }
-
-  // No plan/offboard in play: handle the read-only lookups + direct actions
+  // No plan/confirmation in play: handle the read-only lookups + direct actions
   // deterministically so they don't get mistaken for an onboarding search.
-  if (!input.plan && !input.offboard) {
+  if (!input.plan && !input.confirm) {
     // "show me the candidates" -> a table card of who's available to onboard.
     if (may('listCandidates')) {
       const listed = await resolveListCandidates(input);
       if (listed) return listed;
-    }
-
-    // "revoke Nora's Figma seat" -> real revoke (reclaim from the chat).
-    if (may('removeSeat')) {
-      const removed = await resolveRemoveSeat(input);
-      if (removed) return removed;
     }
 
     // "pull up Nora" -> read-only status card (admin only; managers use their
@@ -1003,7 +911,13 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
       const agent = await buildGenieAgent(role, scope);
       const messages = toMessages(input.history ?? [], input.message);
       const result = await agent.invoke(messages);
-      return liveReplyFromResult(result, agent, role, scope, input);
+      return {
+        message: extractText(result.lastMessage),
+        engine: 'strands-bedrock',
+        plan: input.plan ?? null,
+        templateDraft: input.templateDraft ?? null,
+        confirm: null,
+      };
     } catch (err) {
       // Fall through to scripted so a model/credential hiccup never dead-ends
       // the demo. Surface the reason once in the message.
@@ -1012,8 +926,8 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
         message: `${r.message}\n\n_(Live model unavailable: ${(err as Error).message}. Falling back to the built-in planner.)_`,
         engine: 'scripted',
         plan: r.plan,
-        offboard: r.offboard ?? null,
         templateDraft: input.templateDraft ?? null,
+        confirm: null,
       };
     }
   }
@@ -1022,170 +936,114 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
     message: r.message,
     engine: 'scripted',
     plan: r.plan,
-    offboard: r.offboard ?? null,
     templateDraft: input.templateDraft ?? null,
+    confirm: null,
   };
 }
 
 /**
- * Turn a live agent result into a GenieReply. If the agent paused on a
- * human-in-the-loop interrupt (a destructive action awaiting approval), capture
- * a session snapshot and surface a confirmation card instead of a final answer.
- * Otherwise return the assistant text.
+ * The single deterministic human-in-the-loop confirmation gate for every
+ * destructive action (offboard a hire, revoke a seat). Works identically on
+ * both engines — the confirmation never depends on a model.
+ *
+ *   - a pending confirmation + "yes"   -> execute the action
+ *   - a pending confirmation + "no"    -> cancel
+ *   - a pending confirmation + unclear -> re-ask
+ *   - "offboard <name>"                -> preview + set pending (await yes/no)
+ *   - "revoke <name>'s <app> seat"     -> preview + set pending (await yes/no)
+ *
+ * Returns null when the turn is neither a pending confirmation nor a new
+ * destructive request, so normal handling runs. `caps` gates which new
+ * destructive intents this role may start.
  */
-function liveReplyFromResult(
-  result: {
-    stopReason?: string;
-    interrupts?: Interrupt[];
-    lastMessage?: unknown;
-  },
-  agent: Agent,
-  role: GenieRole,
-  scope: GenieScopeInput,
+async function resolveConfirmation(
   input: GenieTurnInput,
-): GenieReply {
-  if (result.stopReason === 'interrupt' && result.interrupts?.length) {
-    const pending = result.interrupts[0]!;
-    const snapshot = agent.takeSnapshot({preset: 'session'});
-    return {
-      message: hitlPromptText(pending),
-      engine: 'strands-bedrock',
-      plan: input.plan ?? null,
-      offboard: input.offboard ?? null,
-      templateDraft: input.templateDraft ?? null,
-      genieSession: {snapshot, interruptId: pending.id, role, scope},
-      card: hitlCardFrom(pending),
-    };
+  caps: {allowOffboard: boolean; allowRevokeSeat: boolean},
+): Promise<GenieReply | null> {
+  // 1) A confirmation is pending from last turn — this reply decides it.
+  if (input.confirm) {
+    return decidePendingConfirmation(input, input.confirm);
   }
-  return {
-    message: extractText(result.lastMessage),
-    engine: 'strands-bedrock',
-    plan: input.plan ?? null,
-    offboard: input.offboard ?? null,
-    templateDraft: input.templateDraft ?? null,
-    genieSession: null,
-  };
+
+  // 2) A fresh destructive request — preview it and ask (never act this turn).
+  if (caps.allowOffboard) {
+    const offboardPreview = await previewOffboardConfirmation(input);
+    if (offboardPreview) return offboardPreview;
+  }
+  if (caps.allowRevokeSeat) {
+    const revokePreview = await previewRevokeConfirmation(input);
+    if (revokePreview) return revokePreview;
+  }
+
+  return null;
 }
 
-/**
- * Resume a live agent that paused on a human-in-the-loop interrupt last turn.
- * Rebuilds the agent (same role/scope -> same tools), restores the snapshot,
- * and answers the pending interrupt with the human's confirmation from this
- * turn's message. The resumed run may finish, or pause again on a new
- * interrupt — both handled by liveReplyFromResult.
- */
-async function resumeInterruptedAgent(
+/** Apply a yes/no to a pending confirmation, executing only on an explicit yes. */
+async function decidePendingConfirmation(
   input: GenieTurnInput,
-  session: GenieSession,
+  pending: PendingConfirmation,
 ): Promise<GenieReply> {
-  try {
-    const agent = await buildGenieAgent(session.role, session.scope);
-    agent.loadSnapshot(session.snapshot);
-    const result = await agent.invoke([
-      new InterruptResponseContent({
-        interruptId: session.interruptId,
-        // Pass the raw human text; the tool's isApproved() classifies it.
-        response: input.message,
-      }),
-    ]);
-    return liveReplyFromResult(result, agent, session.role, session.scope, {
-      ...input,
-      genieSession: null,
-    });
-  } catch (err) {
-    // If resume fails (snapshot/model hiccup), don't dead-end — report it and
-    // clear the paused session so the user can start over. Never silently
-    // execute the destructive action.
+  const engine: GenieReply['engine'] =
+    hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
+  const base = {engine, plan: input.plan ?? null} as const;
+  const decision = classifyConfirmation(input.message);
+
+  if (decision === 'negative') {
     return {
-      message: `I couldn't resume that confirmation (${(err as Error).message}). Nothing was changed — please try the request again.`,
-      engine: 'strands-bedrock',
-      genieSession: null,
+      ...base,
+      confirm: null,
+      message: `Okay — I won't ${pending.label}. Nothing changed.`,
     };
   }
-}
+  if (decision === 'unclear') {
+    return {
+      ...base,
+      confirm: pending,
+      message: `Just to confirm — reply **yes** to ${pending.label}, or **no** to cancel.`,
+    };
+  }
 
-/** The prose shown with a human-in-the-loop confirmation card. */
-function hitlPromptText(interrupt: Interrupt): string {
-  const reason = interrupt.reason as {prompt?: string} | undefined;
-  const prompt = reason?.prompt ?? 'Please confirm this action.';
-  return `${prompt}\n\nReply **yes** to proceed, or **no** to cancel.`;
-}
-
-/** Build the render-only HITL card from an offboard-confirmation interrupt. */
-function hitlCardFrom(interrupt: Interrupt): HitlCard | null {
-  const r = interrupt.reason as
-    | {
-        kind?: string;
-        hireName?: string;
-        prompt?: string;
-        seats?: {app: string; monthly: number}[];
-        assets?: {name: string; serial: string; residual: number}[];
-        monthlyRecovered?: number;
-        oneTimeRecovered?: number;
-      }
-    | undefined;
-  if (!r || r.kind !== 'offboard') return null;
+  // Affirmative — execute the specific action.
+  const {offboarding, licenses: licenseService, repo} = await getServices();
+  if (pending.action === 'offboard') {
+    const r = await offboarding.execute(pending.hireId);
+    return {
+      ...base,
+      confirm: null,
+      message: renderOffboardResult(r),
+      card: reclaimCardFromResult(r),
+    };
+  }
+  // revokeSeat — re-check the seat is still live before acting on a stale yes.
+  const license = await repo.licenses.get(pending.licenseId);
+  if (!license || license.status === 'revoked') {
+    return {
+      ...base,
+      confirm: null,
+      message: `${pending.hireName}'s ${pending.appName} seat is no longer active — nothing to revoke.`,
+    };
+  }
+  await licenseService.revoke(pending.licenseId);
   return {
-    type: 'hitl',
-    kind: 'offboard',
-    prompt: r.prompt ?? '',
-    hireName: r.hireName ?? '',
-    seats: (r.seats ?? []).map((s) => ({label: s.app, monthly: s.monthly})),
-    assets: (r.assets ?? []).map((a) => ({
-      label: `${a.name} (${a.serial})`,
-      residual: a.residual,
-    })),
-    monthlyRecovered: r.monthlyRecovered ?? 0,
-    oneTimeRecovered: r.oneTimeRecovered ?? 0,
+    ...base,
+    confirm: null,
+    message: `Revoked ${pending.hireName}'s **${pending.appName}** seat. That credits ${money0(pending.monthly)}/mo back — it'll show on the finance reclaim view.`,
   };
 }
 
 /**
- * Deterministic offboarding gate, run before either engine so the destructive
- * action is always controlled by trusted code (never left to the model):
- *   - pending offboard + "yes"  -> execute (revoke seats, return assets)
- *   - pending offboard + "no"   -> cancel
- *   - pending offboard + other  -> re-ask
- *   - "offboard <name>"         -> read-only preview + set pending (await yes/no)
- * Returns null when the turn isn't about offboarding, so normal handling runs.
+ * Preview a fresh "offboard <name>" request: resolve the hire, show what will
+ * be reclaimed, and set a pending confirmation. Never offboards this turn.
+ * Returns null when the message isn't an offboard request.
  */
-async function resolveOffboardConfirmation(
+async function previewOffboardConfirmation(
   input: GenieTurnInput,
 ): Promise<GenieReply | null> {
   const {offboarding, repo} = await getServices();
   const text = input.message.trim();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const pending = input.offboard ?? null;
-
-  if (pending) {
-    const decision = classifyConfirmation(text);
-    if (decision === 'negative') {
-      return {
-        message: `Okay — I won't offboard ${pending.hireName}. Nothing changed.`,
-        engine,
-        offboard: null,
-        plan: input.plan ?? null,
-      };
-    }
-    if (decision === 'affirmative') {
-      const r = await offboarding.execute(pending.hireId);
-      return {
-        message: renderOffboardResult(r),
-        engine,
-        offboard: null,
-        plan: input.plan ?? null,
-        card: reclaimCardFromResult(r),
-      };
-    }
-    // Unclear — re-ask rather than guess on a destructive action.
-    return {
-      message: `Just to confirm — reply **yes** to offboard ${pending.hireName} (revoke seats + return hardware), or **no** to cancel.`,
-      engine,
-      offboard: pending,
-      plan: input.plan ?? null,
-    };
-  }
+  const base = {engine, plan: input.plan ?? null, confirm: null} as const;
 
   const name = parseOffboardIntent(text);
   if (!name) return null;
@@ -1193,15 +1051,14 @@ async function resolveOffboardConfirmation(
   const lookup = await resolveHire(repo, name);
   if (lookup.kind === 'none') {
     return {
+      ...base,
       message: `I couldn't find a current hire named "${name}". Who should I offboard?`,
-      engine,
-      offboard: null,
-      plan: input.plan ?? null,
     };
   }
   if (lookup.kind === 'many') {
     const list = lookup.matches.map((m) => `- ${m.name}`).join('\n');
     return {
+      ...base,
       message: [
         `More than one current hire matches "${name}":`,
         ``,
@@ -1209,26 +1066,26 @@ async function resolveOffboardConfirmation(
         ``,
         `Which one should I offboard? Reply with the full name.`,
       ].join('\n'),
-      engine,
-      offboard: null,
-      plan: input.plan ?? null,
     };
   }
   const preview = await offboarding.preview(lookup.id);
   if (preview.nothingToReclaim) {
     return {
+      ...base,
       message: `${preview.hireName} has no active seats or assigned hardware to reclaim — nothing to offboard.`,
-      engine,
-      offboard: null,
-      plan: input.plan ?? null,
     };
   }
   return {
-    message: renderOffboardPreview(preview),
     engine,
-    offboard: {hireId: preview.hireId, hireName: preview.hireName},
     plan: input.plan ?? null,
+    message: renderOffboardPreview(preview),
     card: reclaimCardFromPreview(preview),
+    confirm: {
+      action: 'offboard',
+      hireId: preview.hireId,
+      hireName: preview.hireName,
+      label: `offboard ${preview.hireName} (revoke seats + return hardware)`,
+    },
   };
 }
 
@@ -1247,7 +1104,7 @@ async function resolveViewRequest(
   const {repo} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: null, confirm: null} as const;
 
   // Published hires first — those are the people with a live onboarding status.
   const lookup = await resolveHire(repo, name);
@@ -1309,7 +1166,7 @@ async function resolveListTemplates(
   const {repo} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: null, confirm: null} as const;
 
   const [templates, templateTasks, apps] = await Promise.all([
     repo.templates.list(),
@@ -1373,7 +1230,7 @@ async function resolveTemplateBuilder(
   const text = input.message.trim();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: null, confirm: null} as const;
 
   // No draft yet: only start one if the user explicitly asked to.
   if (!draft) {
@@ -1586,7 +1443,7 @@ async function resolveListCandidates(
   const {repo} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: null, confirm: null} as const;
 
   const [candidates, users] = await Promise.all([
     repo.candidates.list(),
@@ -1635,57 +1492,19 @@ async function resolveListCandidates(
 }
 
 /**
- * Deterministic "revoke this person's seat" handler — the reclaim-from-chat
- * action. Resolves the hire + the app, finds their matching license, and
- * revokes it for real via LicenseService (credits the ledger). Returns null
- * when the message isn't a seat-removal request.
+ * Preview a fresh "revoke <name>'s <app> seat" request: resolve the hire + app,
+ * find the live license, show the $/mo credit, and set a pending confirmation.
+ * Never revokes this turn — the actual revoke runs in decidePendingConfirmation
+ * only after an explicit human yes. Returns null when the message isn't a
+ * seat-removal request.
  */
-async function resolveRemoveSeat(
+async function previewRevokeConfirmation(
   input: GenieTurnInput,
 ): Promise<GenieReply | null> {
-  const {repo, licenses: licenseService} = await getServices();
+  const {repo} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
-
-  // CONFIRM STEP: a revoke was previewed last turn — this turn's yes/no decides
-  // it. Revoking a seat is destructive, so it never runs without an explicit
-  // human confirmation (human-in-the-loop), on both engines.
-  const pending = input.seatRevoke ?? null;
-  if (pending) {
-    const decision = classifyConfirmation(input.message);
-    if (decision === 'negative') {
-      return {
-        ...base,
-        seatRevoke: null,
-        message: `Okay — I left ${pending.hireName}'s ${pending.appName} seat in place. Nothing changed.`,
-      };
-    }
-    if (decision === 'affirmative') {
-      // Re-check the license is still live before revoking (it may have changed
-      // between turns), so we never act on a stale confirmation.
-      const license = await repo.licenses.get(pending.licenseId);
-      if (!license || license.status === 'revoked') {
-        return {
-          ...base,
-          seatRevoke: null,
-          message: `${pending.hireName}'s ${pending.appName} seat is no longer active — nothing to revoke.`,
-        };
-      }
-      await licenseService.revoke(pending.licenseId);
-      return {
-        ...base,
-        seatRevoke: null,
-        message: `Revoked ${pending.hireName}'s **${pending.appName}** seat. That credits ${money0(pending.monthly)}/mo back — it'll show on the finance reclaim view.`,
-      };
-    }
-    // Unclear — re-ask rather than guess on a destructive action.
-    return {
-      ...base,
-      seatRevoke: pending,
-      message: `Just to confirm — reply **yes** to revoke ${pending.hireName}'s ${pending.appName} seat (${money0(pending.monthly)}/mo), or **no** to keep it.`,
-    };
-  }
+  const base = {engine, plan: input.plan ?? null, confirm: null} as const;
 
   const intent = parseRemoveSeatIntent(input.message);
   if (!intent) return null;
@@ -1734,16 +1553,19 @@ async function resolveRemoveSeat(
     };
   }
 
-  // PREVIEW STEP: do NOT revoke yet. Show what will happen and ask for an
-  // explicit yes/no; the revoke runs next turn only on an affirmative.
+  // PREVIEW STEP: do NOT revoke yet. Show what will happen and set a pending
+  // confirmation; the revoke runs next turn only on an affirmative.
   const monthly = monthlyCost(app.costPerSeat, app.billing);
   return {
-    ...base,
-    seatRevoke: {
+    engine,
+    plan: input.plan ?? null,
+    confirm: {
+      action: 'revokeSeat',
       licenseId: license.id,
       hireName: lookup.name,
       appName: app.name,
       monthly,
+      label: `revoke ${lookup.name}'s ${app.name} seat (${money0(monthly)}/mo)`,
     },
     message: [
       `Revoking ${lookup.name}'s **${app.name}** seat credits ${money0(monthly)}/mo back.`,
@@ -1881,7 +1703,6 @@ function renderChecklist(
 interface ScriptedResult {
   message: string;
   plan: PendingPlan | null;
-  offboard?: PendingOffboard | null;
 }
 
 /**
@@ -1896,7 +1717,7 @@ async function scriptedEmployee(
   const lower = input.message.trim().toLowerCase();
   const scope = scopeOf(input);
   const hireId = scope.hireId;
-  const base = {plan: null, offboard: null} as const;
+  const base = {plan: null} as const;
 
   // Manager / "who do I report to".
   if (/\b(manager|report to|boss|lead|who do i|who's my)\b/.test(lower)) {
@@ -2005,7 +1826,7 @@ async function scriptedManager(input: GenieTurnInput): Promise<ScriptedResult> {
   const lower = text.toLowerCase();
   const scope = scopeOf(input);
   const managerUserId = scope.managerUserId;
-  const base = {plan: null, offboard: null} as const;
+  const base = {plan: null} as const;
 
   if (!managerUserId) {
     return {
