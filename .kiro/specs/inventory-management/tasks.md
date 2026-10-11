@@ -34,14 +34,14 @@
     now-full pool throws, writes no ledger entry, status stays `requested`.
   - _Requirements: 7, 8_
 
-- [ ] 4. Verify reclaim/finance ignore `requested`
+- [x] 4. Verify reclaim/finance ignore `requested`
   - Check `src/lib/reclaim.ts` and `src/lib/finance.ts` don't count `requested`
     as spend or reclaimable (they read `active`/`idle`/`reclaim`). Add a guard
     only if a path counts it. No behavior change expected — this is a
     confirmation task with a quick assertion if needed.
   - _Requirements: 9_
 
-- [ ] 5. Route-level capacity tests
+- [x] 5. Route-level capacity tests
   - New test (e.g. `tests/seat-capacity.test.ts`) driving the handlers against a
     seeded store with `sequentialIdGenerator`/`fixedClock`:
     - `PATCH /api/tasks/:id` → `in_progress` on a full pool: task `blocked`,
@@ -51,7 +51,7 @@
       `requested`.
   - _Requirements: 3, 4, 8_
 
-- [ ] 6. Seed shows the capacity story on load
+- [x] 6. Seed shows the capacity story on load
   - Confirm (or adjust seed) that a fresh load has at least one fully-allocated
     pool (available 0 — GitHub/Figma are already set up this way) and at least
     one `requested` seat in the IT queue. Add/extend the `seed.test.ts`

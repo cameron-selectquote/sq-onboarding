@@ -63,6 +63,13 @@ describe("recurringMonthlyBurn", () => {
     // 21 (github monthly) + 10 (zoom annual/12)
     expect(recurringMonthlyBurn(licenses, apps)).toBe(31);
   });
+
+  it("does not count a requested (waiting) license toward burn", () => {
+    const licenses: License[] = [
+      { id: "l1", hireId: "h1", appId: "github", status: "requested", grantedAt: null, lastUsedAt: null },
+    ];
+    expect(recurringMonthlyBurn(licenses, apps)).toBe(0);
+  });
 });
 
 describe("projectedRunRate", () => {
@@ -111,6 +118,13 @@ describe("reclaimable", () => {
     const result = reclaimable(licenses, apps, assets, assetCatalog);
     // 21 (idle github monthly) + 2400 residual (returned same day it was acquired)
     expect(result).toBe(2421);
+  });
+
+  it("does not count a requested (waiting) license as reclaimable", () => {
+    const licenses: License[] = [
+      { id: "l1", hireId: "h1", appId: "github", status: "requested", grantedAt: null, lastUsedAt: null },
+    ];
+    expect(reclaimable(licenses, apps, [], assetCatalog)).toBe(0);
   });
 });
 
