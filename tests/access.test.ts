@@ -88,17 +88,20 @@ describe('path access', () => {
     expect(canOpenPath('manager', '/myonboarding')).toBe(false);
   });
 
-  it('admin can open everything', () => {
+  it('admin can open its own sections but not the People views', () => {
     for (const p of [
       '/home',
       '/finance/reclaim',
       '/specialist/hires',
       '/team/vendor',
-      '/manager',
-      '/myonboarding',
       '/api-docs',
     ]) {
       expect(canOpenPath('admin', p)).toBe(true);
+    }
+    // "My hires" (manager) and "My onboarding" (employee) belong to those
+    // roles — the admin sidebar no longer surfaces the People section.
+    for (const p of ['/manager', '/myonboarding']) {
+      expect(canOpenPath('admin', p)).toBe(false);
     }
   });
 
@@ -124,7 +127,7 @@ describe('sidebar nav', () => {
     expect(hrefs('employee')).toEqual(['/home', '/myonboarding']);
   });
 
-  it('admin nav reaches every section', () => {
+  it('admin nav reaches every section it owns', () => {
     const all = hrefs('admin');
     for (const href of [
       '/home',
@@ -132,11 +135,13 @@ describe('sidebar nav', () => {
       '/finance',
       '/finance/reclaim',
       '/team/it',
-      '/manager',
-      '/myonboarding',
       '/api-docs',
     ]) {
       expect(all).toContain(href);
+    }
+    // The People views aren't in the admin sidebar.
+    for (const href of ['/manager', '/myonboarding']) {
+      expect(all).not.toContain(href);
     }
   });
 });

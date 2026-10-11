@@ -59,15 +59,9 @@ const ACCESS: Record<AppRole, readonly View[]> = {
   // Admin reaches the (richer) Genie through the `specialist` view at
   // /specialist/genie, so it doesn't need the shared `genie` view. Manager and
   // employee get the shared, role-scoped Genie at /genie.
-  admin: [
-    'home',
-    'specialist',
-    'finance',
-    ...teamViews,
-    'manager',
-    'myonboarding',
-    'api-docs',
-  ],
+  // The "People" views (manager's "My hires" + employee's "My onboarding")
+  // belong to those roles, not admin — so they're not in the admin sidebar.
+  admin: ['home', 'specialist', 'finance', ...teamViews, 'api-docs'],
   manager: ['home', 'manager', 'genie'],
   employee: ['home', 'myonboarding', 'genie'],
 };
