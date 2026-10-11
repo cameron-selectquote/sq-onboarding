@@ -58,7 +58,7 @@
     assertion.
   - _Requirements: 10_
 
-- [ ] 7. Green bar + demo path
+- [x] 7. Green bar + demo path
   - `npm test` + `npm run build` pass (clear `.next/types` first if a stale
     phantom-route typecheck error appears). Walk the capacity beat: full pool →
     task blocks → seat waits in IT queue → grant frees burn. Confirm the
