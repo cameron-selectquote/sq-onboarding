@@ -177,6 +177,10 @@ class SqliteCollection<T extends {id: string}> implements Collection<T> {
     const all = await this.list();
     return all.filter(predicate);
   }
+
+  async clear(): Promise<void> {
+    this.db.exec(`DELETE FROM "${this.spec.table}"`);
+  }
 }
 
 // Column + type definitions, mirroring src/lib/types.ts. Keep in sync when the
@@ -420,6 +424,21 @@ export class SqliteRepository implements Repository {
       .prepare('SELECT COUNT(*) AS n FROM "company"')
       .get() as {n: number};
     return row.n === 0;
+  }
+
+  /**
+   * Delete every row from every table in one transaction, so a concurrent read
+   * never sees a half-cleared store. Tables carry no FK constraints (see
+   * ensureSchema), so delete order is irrelevant. Reseeding is a separate step.
+   */
+  async reset(): Promise<void> {
+    const tables = (Object.values(SCHEMA) as SchemaEntry<{id: string}>[]).map(
+      (entry) => entry.spec.table,
+    );
+    const wipe = this.db.transaction(() => {
+      for (const table of tables) this.db.exec(`DELETE FROM "${table}"`);
+    });
+    wipe();
   }
 
   close(): void {
