@@ -10,6 +10,7 @@ create type task_status     as enum ('todo', 'in_progress', 'review', 'blocked',
 create type license_status  as enum ('active', 'idle', 'reclaim', 'revoked');
 create type asset_status    as enum ('in_stock', 'assigned', 'in_repair', 'returned', 'retired');
 create type ledger_type     as enum ('license_grant', 'license_revoke', 'asset_purchase', 'asset_return', 'fee');
+create type reclaim_status  as enum ('pending', 'reclaiming', 'done', 'cancelled');
 
 create table company (
   id        text primary key,
@@ -138,6 +139,19 @@ create table candidate (
   hire_id           text references hire(id) on delete set null
 );
 
+-- A tracked reclaim job: finance flags a seat, IT executes it. The ledger
+-- credit happens only on completion (via the revoke path); open/start/cancel
+-- never write to the ledger.
+create table reclaim_task (
+  id              text primary key,
+  license_id      text not null references license(id) on delete cascade,
+  status          reclaim_status not null default 'pending',
+  created_by_team team not null,
+  created_at      timestamptz not null default now(),
+  completed_at    timestamptz,
+  cancelled_at    timestamptz
+);
+
 -- Hot paths for the finance/reclaim queries.
 create index idx_ledger_hire   on ledger_entry(hire_id);
 create index idx_license_hire  on license(hire_id);
@@ -145,3 +159,4 @@ create index idx_license_app   on license(app_id);
 create index idx_task_hire     on task(hire_id);
 create index idx_asset_hire    on asset(assigned_to_hire_id);
 create index idx_candidate_name on candidate(lower(name));
+create index idx_reclaim_task_license on reclaim_task(license_id);

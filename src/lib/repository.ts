@@ -19,6 +19,7 @@ import type {
   LedgerEntry,
   License,
   Notification,
+  ReclaimTask,
   Task,
   Template,
   TemplateTask,
@@ -51,4 +52,5 @@ export interface Repository {
   ledgerEntries: Collection<LedgerEntry>;
   notifications: Collection<Notification>;
   candidates: Collection<Candidate>;
+  reclaimTasks: Collection<ReclaimTask>;
 }

@@ -20,6 +20,7 @@ import type {
   Company,
   Hire,
   License,
+  ReclaimTask,
   Task,
   TaskStatus,
   Template,
@@ -48,6 +49,7 @@ export interface SeedData {
   licenses: License[];
   budgets: Budget[];
   candidates: Candidate[];
+  reclaimTasks: ReclaimTask[];
 }
 
 /** ISO timestamp `n` days before load, so idle/reclaim flags stay meaningful. */
@@ -694,6 +696,31 @@ export const seedData: SeedData = {
       hireId: null,
     },
   ],
+
+  // Tracked reclaim jobs: finance flagged lic_7 (pending), IT is already
+  // working lic_14 (reclaiming). Both target seats that are already in
+  // 'reclaim' status, so an open job's seat is surfaced but never double-
+  // counted by the reclaim engine.
+  reclaimTasks: [
+    {
+      id: 'rt_1',
+      licenseId: 'lic_7',
+      status: 'pending',
+      createdByTeam: 'finance',
+      createdAt: daysAgo(2),
+      completedAt: null,
+      cancelledAt: null,
+    },
+    {
+      id: 'rt_2',
+      licenseId: 'lic_14',
+      status: 'reclaiming',
+      createdByTeam: 'finance',
+      createdAt: daysAgo(1),
+      completedAt: null,
+      cancelledAt: null,
+    },
+  ],
 };
 
 seedData.tasks = seedTasks(
@@ -738,4 +765,6 @@ export async function loadSeed(
   for (const l of data.licenses) await insertIfAbsent(repo.licenses, l);
   for (const b of data.budgets) await insertIfAbsent(repo.budgets, b);
   for (const c of data.candidates) await insertIfAbsent(repo.candidates, c);
+  for (const r of data.reclaimTasks)
+    await insertIfAbsent(repo.reclaimTasks, r);
 }

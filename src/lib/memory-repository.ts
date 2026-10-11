@@ -19,6 +19,7 @@ import type {
   LedgerEntry,
   License,
   Notification,
+  ReclaimTask,
   Task,
   Template,
   TemplateTask,
@@ -88,6 +89,7 @@ export class MemoryRepository implements Repository {
   ledgerEntries = new MemoryCollection<LedgerEntry>();
   notifications = new MemoryCollection<Notification>();
   candidates = new MemoryCollection<Candidate>();
+  reclaimTasks = new MemoryCollection<ReclaimTask>();
 }
 
 /** Factory kept separate so callers depend on the interface, not the class. */
