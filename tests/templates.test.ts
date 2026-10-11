@@ -1,7 +1,7 @@
 import { createMemoryRepository } from "@/lib/memory-repository";
 import { TemplateService } from "@/lib/templates";
 import { sequentialIdGenerator, fixedClock } from "@/lib/ids";
-import type { AppCatalogItem, Hire, License, Template, TemplateTask } from "@/lib/types";
+import type { AppCatalogItem, Hire, Template, TemplateTask } from "@/lib/types";
 
 async function setup() {
   const repo = createMemoryRepository();
