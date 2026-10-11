@@ -191,12 +191,24 @@ export function cumulativeRecurringBurn(entries: LedgerEntry[]): BurnPoint[] {
     if (!/^\d{4}-\d{2}$/.test(month)) continue;
     deltaByMonth.set(month, (deltaByMonth.get(month) ?? 0) + e.amount);
   }
-  const months = [...deltaByMonth.keys()].sort((a, b) => a.localeCompare(b));
+  const active = [...deltaByMonth.keys()].sort((a, b) => a.localeCompare(b));
+  if (active.length === 0) return [];
+
+  // Walk every calendar month from the first to the last activity, inclusive —
+  // not just the months that had a ledger delta. A recurring burn rate persists
+  // when nothing changes, so a quiet month carries the prior month's rate
+  // forward (delta 0) rather than vanishing. This yields a gapless monthly
+  // series the trend chart can render without holes.
+  const out: BurnPoint[] = [];
   let running = 0;
-  return months.map((month) => {
-    running += deltaByMonth.get(month)!;
-    return { month, burn: running };
-  });
+  let month = active[0]!;
+  const lastMonth = active[active.length - 1]!;
+  while (month <= lastMonth) {
+    running += deltaByMonth.get(month) ?? 0;
+    out.push({ month, burn: running });
+    month = addMonths(month, 1);
+  }
+  return out;
 }
 
 /**

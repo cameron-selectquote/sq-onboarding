@@ -7,7 +7,6 @@ import {
   AssignSeatForm,
   LicenseButton,
   RaisePoForm,
-  ReclaimAllButton,
   ReclaimJobButton,
   TaskMoveButton,
 } from "../../_components/actions";
@@ -112,14 +111,7 @@ export default async function TeamQueue({
           )}
           {isReclaimView ? (
             <>
-              <PageHead eyebrow="IT team" title="Reclaim queue">
-                {reclaimJobs.length > 1 && (
-                  <ReclaimAllButton
-                    taskIds={reclaimJobs.map((j) => j.taskId)}
-                    label={`Reclaim all ${reclaimJobs.length} seats`}
-                  />
-                )}
-              </PageHead>
+              <PageHead eyebrow="IT team" title="Reclaim queue" />
               <section className="panel" style={{ gap: 0, padding: "6px 20px 10px" }}>
                 {reclaimJobs.length === 0 && <span className="empty">No seats flagged for reclaim.</span>}
                 <div className="rows">

@@ -199,7 +199,7 @@ export default async function FinanceOverview() {
         {burnSeries.map((p) => (
           <Meter
             key={p.month}
-            label={monthLabel(p.month)}
+            label={monthYearLabel(p.month)}
             value={`${money(Math.round(p.burn))}/mo`}
             pct={(p.burn / maxBurn) * 100}
           />

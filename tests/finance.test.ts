@@ -255,6 +255,22 @@ describe("cumulativeRecurringBurn", () => {
     ]);
     expect(series.map((p) => p.burn)).toEqual([21, 0]);
   });
+
+  it("fills quiet months, carrying the burn rate forward across gaps and year boundaries", () => {
+    const series = cumulativeRecurringBurn([
+      mk("a", 8, "recurring", "2025-11-10T00:00:00.000Z"),
+      // Dec 2025 and Jan 2026 are quiet — no ledger delta
+      mk("b", 21, "recurring", "2026-02-05T00:00:00.000Z"),
+    ]);
+    // Every calendar month from first to last appears, in order, with quiet
+    // months holding the prior rate (Nov 8 -> Dec 8 -> Jan 8 -> Feb 29).
+    expect(series.map((p) => [p.month, p.burn])).toEqual([
+      ["2025-11", 8],
+      ["2025-12", 8],
+      ["2026-01", 8],
+      ["2026-02", 29],
+    ]);
+  });
 });
 
 describe("burnDelta", () => {
