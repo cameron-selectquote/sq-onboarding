@@ -810,3 +810,48 @@ export async function loadSeed(
   for (const r of data.reclaimTasks)
     await insertIfAbsent(repo.reclaimTasks, r);
 }
+
+/** A column a migration just added, keyed by Repository collection name. */
+export interface NewColumn {
+  collection: string;
+  column: string;
+}
+
+/**
+ * After an additive migration (see `ensureSchema` in sqlite-repository.ts),
+ * existing rows hold NULL in the new columns. For rows that came from the seed
+ * (matched by id), copy the seed's value for exactly those new columns, so e.g.
+ * `appCatalog.seatsOwned` isn't NULL — which the capacity guard reads as 0 and
+ * would block every grant. Rows not in the seed, and columns that already
+ * existed, are left untouched. Returns the number of rows patched.
+ */
+export async function backfillSeedFields(
+  repo: Repository,
+  added: readonly NewColumn[],
+  data: SeedData = seedData,
+): Promise<number> {
+  let patched = 0;
+  const byCollection = new Map<string, string[]>();
+  for (const {collection, column} of added) {
+    byCollection.set(collection, [...(byCollection.get(collection) ?? []), column]);
+  }
+  for (const [collection, columns] of byCollection) {
+    const seedRows = data[collection as keyof SeedData] as {id: string}[] | undefined;
+    const target = repo[collection as keyof SeedData] as Collection<{id: string}> | undefined;
+    if (!seedRows || !target) continue;
+    for (const seedRow of seedRows) {
+      const existing = (await target.get(seedRow.id)) as Record<string, unknown> | null;
+      if (!existing) continue;
+      const patch: Record<string, unknown> = {};
+      for (const column of columns) {
+        const value = (seedRow as Record<string, unknown>)[column];
+        if (existing[column] == null && value != null) patch[column] = value;
+      }
+      if (Object.keys(patch).length > 0) {
+        await target.update(seedRow.id, patch);
+        patched++;
+      }
+    }
+  }
+  return patched;
+}
