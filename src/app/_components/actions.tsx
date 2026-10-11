@@ -209,6 +209,37 @@ export function ReclaimJobButton({
   );
 }
 
+/**
+ * Complete every open reclaim job — one PATCH /api/reclaim-tasks/:id
+ * { action: 'complete' } per taskId, in order (mirrors LicenseButton's fan-out
+ * over licenseIds). Each complete runs the real revoke + ledger credit.
+ */
+export function ReclaimAllButton({
+  taskIds,
+  label,
+  className = "btn btn-primary",
+}: {
+  taskIds: string[];
+  label: string;
+  className?: string;
+}) {
+  const { run, pending, error } = useMutation();
+  return (
+    <span>
+      <button
+        className={className}
+        disabled={pending || taskIds.length === 0}
+        onClick={() =>
+          run(taskIds.map((id) => () => send(`/api/reclaim-tasks/${id}`, "PATCH", { action: "complete" })))
+        }
+      >
+        {pending ? "Working…" : label}
+      </button>
+      {error && <span className="error"> {error}</span>}
+    </span>
+  );
+}
+
 /** Raise a PO for a hire — POST /api/pos. Serial tag is generated client-side. */
 export function RaisePoForm({
   hires,

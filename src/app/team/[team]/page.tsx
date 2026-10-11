@@ -3,7 +3,7 @@ import { getServices } from "@/server/store";
 import { getReclaimJobs } from "@/server/queries";
 import type { Task, TaskStatus } from "@/lib/types";
 import { Avatar, PageHead, SegLinks, Shell } from "../../_components/Shell";
-import { LicenseButton, RaisePoForm, ReclaimJobButton, TaskMoveButton } from "../../_components/actions";
+import { LicenseButton, RaisePoForm, ReclaimAllButton, ReclaimJobButton, TaskMoveButton } from "../../_components/actions";
 import { costLabel, isTeam, money, shortDate, teamLabel } from "../../_components/format";
 
 export const dynamic = "force-dynamic";
@@ -35,11 +35,11 @@ export default async function TeamQueue({
   searchParams,
 }: {
   params: Promise<{ team: string }>;
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; view?: string }>;
 }) {
   const { team } = await params;
   if (!isTeam(team)) notFound();
-  const { status = "todo" } = await searchParams;
+  const { status = "todo", view } = await searchParams;
   const tab = TABS.find((t) => t.key === status) ?? TABS[0]!;
 
   const { repo } = await getServices();
@@ -66,47 +66,97 @@ export default async function TeamQueue({
   const reclaimJobs = team === "it" ? (await getReclaimJobs()).jobs : [];
   const base = `/team/${team}`;
 
+  // IT-only "Reclaim" tab, selected by a URL param on the same route. The open
+  // count (pending + reclaiming) is already what getReclaimJobs() returns.
+  const isReclaimView = team === "it" && view === "reclaim";
+  const reclaimHref = `${base}?view=reclaim`;
+  const nav =
+    team === "it"
+      ? [
+          { href: base, label: "Queue", badge: countFor(TABS[0]!.statuses) },
+          { href: reclaimHref, label: "Reclaim", badge: reclaimJobs.length },
+        ]
+      : [{ href: base, label: "Queue", badge: countFor(TABS[0]!.statuses) }];
+
   return (
-    <Shell nav={[{ href: base, label: "Queue", badge: countFor(TABS[0]!.statuses) }]} active={base} who={`Team · ${teamLabel(team)}`}>
+    <Shell nav={nav} active={isReclaimView ? reclaimHref : base} who={`Team · ${teamLabel(team)}`}>
       <div className="with-rail">
         <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
-          <PageHead eyebrow={`${teamLabel(team)} team`} title="Your queue" />
-          <div>
-            <SegLinks
-              active={tab.key === "todo" ? base : `${base}?status=${tab.key}`}
-              options={TABS.map((t) => ({
-                href: t.key === "todo" ? base : `${base}?status=${t.key}`,
-                label: `${t.label} · ${countFor(t.statuses)}`,
-              }))}
-            />
-          </div>
-          <section className="panel" style={{ gap: 0, padding: "6px 20px 10px" }}>
-            {tasks.length === 0 && <span className="empty">Queue&apos;s clear.</span>}
-            <div className="rows">
-              {tasks.map((t) => {
-                const hire = hireById.get(t.hireId);
-                const move = nextMove(t);
-                return (
-                  <div key={t.id} className="row row-queue">
-                    <div className="who">
-                      <Avatar name={hire?.name ?? "?"} />
-                      <div className="who-text">
-                        <span className="who-name">{hire?.name ?? "Unknown hire"}</span>
-                        <span className="who-sub">{hire?.roleName}</span>
+          {isReclaimView ? (
+            <>
+              <PageHead eyebrow="IT team" title="Reclaim queue">
+                {reclaimJobs.length > 1 && (
+                  <ReclaimAllButton
+                    taskIds={reclaimJobs.map((j) => j.taskId)}
+                    label={`Reclaim all ${reclaimJobs.length} seats`}
+                  />
+                )}
+              </PageHead>
+              <section className="panel" style={{ gap: 0, padding: "6px 20px 10px" }}>
+                {reclaimJobs.length === 0 && <span className="empty">No seats flagged for reclaim.</span>}
+                <div className="rows">
+                  {reclaimJobs.map((j) => (
+                    <div key={j.taskId} className="row row-queue">
+                      <div className="who">
+                        <Avatar name={j.hireName ?? "?"} />
+                        <div className="who-text">
+                          <span className="who-name">{j.hireName ?? "Unassigned"}</span>
+                          <span className="who-sub">{j.app}</span>
+                        </div>
                       </div>
+                      <span style={{ fontSize: 14 }}>{j.app} seat</span>
+                      <span className="muted" style={{ fontSize: 13 }}>{money(Math.round(j.monthly * 100) / 100)}/mo</span>
+                      <span />
+                      <span style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <ReclaimJobButton taskId={j.taskId} action="complete" label="Revoke" primary />
+                        <ReclaimJobButton taskId={j.taskId} action="cancel" label="Cancel" />
+                      </span>
                     </div>
-                    <span style={{ fontSize: 14 }}>
-                      {t.title}
-                      {t.status === "blocked" && <span className="pill pill-blocked" style={{ marginLeft: 8 }}>Blocked</span>}
-                    </span>
-                    <span className="muted" style={{ fontSize: 13 }}>{costLabel(t.cost, t.costType)}</span>
-                    <span className="muted" style={{ fontSize: 13 }}>{hire ? shortDate(hire.startDate) : ""}</span>
-                    {move ? <TaskMoveButton taskId={t.id} {...move} /> : <span className="pill pill-done">Done</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+                  ))}
+                </div>
+              </section>
+            </>
+          ) : (
+            <>
+              <PageHead eyebrow={`${teamLabel(team)} team`} title="Your queue" />
+              <div>
+                <SegLinks
+                  active={tab.key === "todo" ? base : `${base}?status=${tab.key}`}
+                  options={TABS.map((t) => ({
+                    href: t.key === "todo" ? base : `${base}?status=${t.key}`,
+                    label: `${t.label} · ${countFor(t.statuses)}`,
+                  }))}
+                />
+              </div>
+              <section className="panel" style={{ gap: 0, padding: "6px 20px 10px" }}>
+                {tasks.length === 0 && <span className="empty">Queue&apos;s clear.</span>}
+                <div className="rows">
+                  {tasks.map((t) => {
+                    const hire = hireById.get(t.hireId);
+                    const move = nextMove(t);
+                    return (
+                      <div key={t.id} className="row row-queue">
+                        <div className="who">
+                          <Avatar name={hire?.name ?? "?"} />
+                          <div className="who-text">
+                            <span className="who-name">{hire?.name ?? "Unknown hire"}</span>
+                            <span className="who-sub">{hire?.roleName}</span>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: 14 }}>
+                          {t.title}
+                          {t.status === "blocked" && <span className="pill pill-blocked" style={{ marginLeft: 8 }}>Blocked</span>}
+                        </span>
+                        <span className="muted" style={{ fontSize: 13 }}>{costLabel(t.cost, t.costType)}</span>
+                        <span className="muted" style={{ fontSize: 13 }}>{hire ? shortDate(hire.startDate) : ""}</span>
+                        {move ? <TaskMoveButton taskId={t.id} {...move} /> : <span className="pill pill-done">Done</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </>
+          )}
         </div>
 
         <aside className="rail">
@@ -143,28 +193,6 @@ export default async function TeamQueue({
                   licenseIds={requested.map((l) => l.id)}
                 />
               )}
-            </section>
-          )}
-
-          {team === "it" && (
-            <section className="turn" style={{ background: "var(--color-accent-100)", color: "var(--color-accent-900)" }}>
-              <span style={{ fontWeight: 700, fontSize: 14 }}>Reclaim queue</span>
-              {reclaimJobs.length === 0 && <span style={{ fontSize: 13 }}>No seats flagged for reclaim.</span>}
-              {reclaimJobs.map((j) => (
-                <div key={j.taskId} className="row row-seat" style={{ padding: "4px 0", borderTop: 0, gap: 8 }}>
-                  <span style={{ fontSize: 13 }}>
-                    {j.app} · {j.hireName ?? "Unassigned"} · {money(Math.round(j.monthly * 100) / 100)}/mo
-                    {j.status === "reclaiming" && (
-                      <span className="pill pill-progress" style={{ marginLeft: 8 }}>Reclaiming</span>
-                    )}
-                  </span>
-                  {j.status === "pending" && (
-                    <ReclaimJobButton taskId={j.taskId} action="start" label="Start" primary />
-                  )}
-                  <ReclaimJobButton taskId={j.taskId} action="complete" label="Mark done" primary={j.status === "reclaiming"} />
-                  <ReclaimJobButton taskId={j.taskId} action="cancel" label="Cancel" />
-                </div>
-              ))}
             </section>
           )}
 

@@ -13,7 +13,7 @@
 // its DB path (it does so lazily on first getServices()).
 process.env.PROVISION_DB_PATH = ":memory:";
 
-import { filterQueueForInFlight, getFinanceSummary, getReclaimQueue } from "@/server/queries";
+import { filterQueueForInFlight, getFinanceSummary, getReclaimJobs, getReclaimQueue } from "@/server/queries";
 import type { QueueRow } from "@/server/queries";
 import { getServices } from "@/server/store";
 import { buildReclaimReport } from "@/lib/reclaim";
@@ -63,6 +63,29 @@ describe("getFinanceSummary / getReclaimQueue reconciliation", () => {
     // Both reclaim units are present and strictly separate — never summed.
     expect(report.recurringMonthly).toBeGreaterThan(0);
     expect(report.oneTimeAssetResidual).toBeGreaterThan(0);
+  });
+});
+
+describe("getReclaimJobs (IT reclaim tab source)", () => {
+  it("lists both pending and reclaiming jobs as open (the tab list + badge count)", async () => {
+    const { repo, reclaimTasks } = await getServices();
+    // Two active seats become two open jobs; start one so a 'reclaiming' job
+    // also appears — the Reclaim tab shows both, undistinguished, and the badge
+    // counts pending + reclaiming.
+    const [a, b] = await repo.licenses.where((l) => l.status === "active");
+    expect(a && b).toBeTruthy();
+
+    const before = (await getReclaimJobs()).jobs.length;
+
+    const jobA = await reclaimTasks.open(a!.id, "it");
+    const jobB = await reclaimTasks.open(b!.id, "it");
+    await reclaimTasks.start(jobB.id); // -> 'reclaiming'
+
+    const { jobs } = await getReclaimJobs();
+    expect(jobs.length).toBe(before + 2);
+
+    const mine = jobs.filter((j) => j.taskId === jobA.id || j.taskId === jobB.id);
+    expect(mine.map((j) => j.status).sort()).toEqual(["pending", "reclaiming"]);
   });
 });
 
