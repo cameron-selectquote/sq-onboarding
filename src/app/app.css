@@ -36,6 +36,13 @@ a.seg-opt[aria-current='page'] {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Pin the sidebar to the viewport and let its own content scroll, so the
+     user picker (sticky to the bottom below) is always in view no matter how
+     long the nav gets. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 .side-brand {
   display: flex;
@@ -144,10 +151,21 @@ details.side-section[open] > summary .side-section-chevron {
   gap: 2px;
 }
 
-/* — user block: avatar + name; opens sign-out (and the admin role picker) — */
+/* — user block: avatar + name; opens sign-out (and the admin role picker) —
+   Locked to the bottom-left of the sidebar and kept in view: it sticks to the
+   bottom of the scrolling sidebar column, with a solid backing + top divider so
+   the nav links scroll cleanly underneath it. */
 .side-user {
   border-radius: 20px;
   background: var(--color-bg);
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  /* A little breathing room + a divider so scrolled links don't crowd it. */
+  padding-top: 8px;
+  margin-bottom: -24px;
+  padding-bottom: 24px;
+  box-shadow: 0 -8px 12px -8px var(--color-neutral-100);
 }
 .side-user > summary {
   display: flex;
