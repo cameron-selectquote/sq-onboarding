@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Re-deploy main on demand, e.g. after rotating a Production secret/var.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -46,7 +48,7 @@ jobs:
     needs: verify
     if: >-
       github.ref == 'refs/heads/main' &&
-      github.event_name == 'push' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       vars.DEPLOY_FREEZE != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -86,4 +88,10 @@ jobs:
       # node.service, smoke-tests $PROD_URL/api/hires, and rolls back on failure.
       - name: Deploy to Akamai
         timeout-minutes: 5
+        # Runtime env written to the box by deploy.sh (Production environment).
+        env:
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          GENIE_MODEL_ID: ${{ vars.GENIE_MODEL_ID }}
+          GENIE_DEBUG: ${{ vars.GENIE_DEBUG }}
         run: scripts/deploy.sh

@@ -48,6 +48,10 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOSTNAME=127.0.0.1
 Environment=PROVISION_DB_PATH=$APP_ROOT/data/provision.sqlite
+# Runtime config/secrets (Bedrock key, GENIE_DEBUG, ...), rewritten by
+# scripts/deploy.sh on every deploy. "-" = optional, so the service still
+# starts before the first deploy writes it.
+EnvironmentFile=-$APP_ROOT/env
 
 [Install]
 WantedBy=multi-user.target
