@@ -578,28 +578,31 @@ export const seedData: SeedData = {
     },
   ],
 
+  // Per-quarter team budgets, sized so the seeded/backdated spend meaningfully
+  // approaches them — the BvA forecast crosses the quarterly ceiling within the
+  // quarter (realistic for a small, fast-scaling team).
   budgets: [
-    {id: 'bud_it', team: 'it', period: '2026-Q1', limit: 5000, spent: 0},
+    {id: 'bud_it', team: 'it', period: '2026-Q4', limit: 1500, spent: 0},
     {
       id: 'bud_vendor',
       team: 'vendor',
-      period: '2026-Q1',
-      limit: 40000,
+      period: '2026-Q4',
+      limit: 3500,
       spent: 0,
     },
     {
       id: 'bud_facilities',
       team: 'facilities',
-      period: '2026-Q1',
-      limit: 2000,
+      period: '2026-Q4',
+      limit: 600,
       spent: 0,
     },
-    {id: 'bud_hr', team: 'hr', period: '2026-Q1', limit: 3000, spent: 0},
+    {id: 'bud_hr', team: 'hr', period: '2026-Q4', limit: 400, spent: 0},
     {
       id: 'bud_finance',
       team: 'finance',
-      period: '2026-Q1',
-      limit: 3000,
+      period: '2026-Q4',
+      limit: 200,
       spent: 0,
     },
   ],

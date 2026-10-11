@@ -90,7 +90,15 @@ const HISTORY: HistoryEntry[] = [
   { monthsBack: 1, hireId: 'hire_4', type: 'license_grant', label: 'Grant: Jira', amount: 14, costType: 'recurring', budgetTeam: 'it' },
 
   // ---- this month (small, recent activity) ----
+  // ---- this month (current quarter): a hiring surge drives spend toward the
+  //      quarterly budget, so the BvA forecast crosses the line within the
+  //      quarter — the "we're about to go over, reclaim to recover" setup.
   { monthsBack: 0, hireId: 'hire_3', type: 'license_grant', label: 'Grant: GitHub', amount: 21, costType: 'recurring', budgetTeam: 'it' },
+  { monthsBack: 0, hireId: 'hire_4', type: 'license_grant', label: 'Grant: Figma', amount: 15, costType: 'recurring', budgetTeam: 'it' },
+  { monthsBack: 0, hireId: 'hire_5', type: 'asset_purchase', label: 'PO: MacBook Pro', amount: 2800, costType: 'one_time', budgetTeam: 'vendor' },
+  { monthsBack: 0, hireId: 'hire_3', type: 'asset_purchase', label: 'PO: MacBook Pro', amount: 2800, costType: 'one_time', budgetTeam: 'vendor' },
+  { monthsBack: 0, hireId: 'hire_4', type: 'asset_purchase', label: 'PO: Monitor', amount: 420, costType: 'one_time', budgetTeam: 'facilities' },
+  { monthsBack: 0, hireId: null, type: 'fee', label: 'Onboarding platform fee', amount: 120, costType: 'one_time', budgetTeam: 'hr' },
 ];
 
 /**
