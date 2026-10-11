@@ -8,12 +8,12 @@
 
 import {useRouter} from 'next/navigation';
 import {useState, useTransition, type ReactNode} from 'react';
-import type {TaskStatus} from '@/lib/types';
+import type {CostType, TaskStatus, Team} from '@/lib/types';
 import {money} from './format';
 
 async function send(
   url: string,
-  method: 'POST' | 'PATCH',
+  method: 'POST' | 'PATCH' | 'DELETE',
   body?: unknown,
 ): Promise<void> {
   const res = await fetch(url, {
@@ -443,5 +443,209 @@ export function AssignSeatForm({
       </div>
       {error && <span className='error'>{error}</span>}
     </form>
+  );
+}
+
+/** Create a new role template — POST /api/templates. */
+export function CreateTemplateForm() {
+  const {run, pending, error} = useMutation();
+  const [roleName, setRoleName] = useState('');
+
+  return (
+    <form
+      style={{display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap'}}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!roleName.trim()) return;
+        run([() => send('/api/templates', 'POST', {roleName})]);
+        setRoleName('');
+      }}
+    >
+      <div className='field' style={{flex: '1 1 220px'}}>
+        <label htmlFor='tpl-role'>New role template</label>
+        <input
+          id='tpl-role'
+          className='input'
+          placeholder='e.g. Data Analyst'
+          value={roleName}
+          onChange={(e) => setRoleName(e.target.value)}
+        />
+      </div>
+      <button
+        className='btn btn-primary'
+        style={{flex: '0 0 auto'}}
+        disabled={pending || !roleName.trim()}
+      >
+        {pending ? 'Adding…' : 'Add template'}
+      </button>
+      {error && <span className='error'>{error}</span>}
+    </form>
+  );
+}
+
+const OWNER_TEAMS: {value: Team; label: string}[] = [
+  {value: 'hr', label: 'HR'},
+  {value: 'it', label: 'IT'},
+  {value: 'vendor', label: 'Hardware'},
+  {value: 'facilities', label: 'Facilities'},
+  {value: 'finance', label: 'Finance'},
+];
+
+const COST_TYPES: {value: CostType; label: string}[] = [
+  {value: 'none', label: 'No cost'},
+  {value: 'one_time', label: 'One-time'},
+  {value: 'recurring', label: 'Recurring / mo'},
+];
+
+/**
+ * Add a task to a template — POST /api/templates/:id/tasks. Picking an app
+ * makes the task grant that seat when a hire starts it; cost type "none" zeroes
+ * the cost on the server regardless of what's typed.
+ */
+export function AddTemplateTaskForm({
+  templateId,
+  apps,
+}: {
+  templateId: string;
+  apps: {id: string; name: string}[];
+}) {
+  const {run, pending, error} = useMutation();
+  const [title, setTitle] = useState('');
+  const [ownerTeam, setOwnerTeam] = useState<Team>('it');
+  const [costType, setCostType] = useState<CostType>('none');
+  const [cost, setCost] = useState('');
+  const [appId, setAppId] = useState('');
+
+  function reset() {
+    setTitle('');
+    setOwnerTeam('it');
+    setCostType('none');
+    setCost('');
+    setAppId('');
+  }
+
+  return (
+    <form
+      className='tpl-task-form'
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!title.trim()) return;
+        run([
+          () =>
+            send(`/api/templates/${templateId}/tasks`, 'POST', {
+              title,
+              ownerTeam,
+              costType,
+              cost: costType === 'none' ? 0 : Number(cost) || 0,
+              appId: appId || null,
+            }),
+        ]);
+        reset();
+      }}
+    >
+      <div className='field' style={{flex: '2 1 200px'}}>
+        <label>Task</label>
+        <input
+          className='input'
+          placeholder='e.g. Grant GitHub seat'
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </div>
+      <div className='field' style={{flex: '1 1 120px'}}>
+        <label>Owner</label>
+        <select
+          className='input'
+          value={ownerTeam}
+          onChange={(e) => setOwnerTeam(e.target.value as Team)}
+        >
+          {OWNER_TEAMS.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className='field' style={{flex: '1 1 130px'}}>
+        <label>Cost type</label>
+        <select
+          className='input'
+          value={costType}
+          onChange={(e) => setCostType(e.target.value as CostType)}
+        >
+          {COST_TYPES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className='field' style={{flex: '0 1 100px'}}>
+        <label>Cost</label>
+        <input
+          className='input'
+          type='number'
+          min='0'
+          step='1'
+          placeholder='0'
+          value={cost}
+          disabled={costType === 'none'}
+          onChange={(e) => setCost(e.target.value)}
+        />
+      </div>
+      <div className='field' style={{flex: '1 1 140px'}}>
+        <label>Grants seat</label>
+        <select
+          className='input'
+          value={appId}
+          onChange={(e) => setAppId(e.target.value)}
+        >
+          <option value=''>None</option>
+          {apps.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <button
+        className='btn btn-primary'
+        style={{flex: '0 0 auto'}}
+        disabled={pending || !title.trim()}
+      >
+        {pending ? 'Adding…' : 'Add task'}
+      </button>
+      {error && <span className='error' style={{flexBasis: '100%'}}>{error}</span>}
+    </form>
+  );
+}
+
+/** Remove a template task — DELETE /api/templates/:id/tasks/:taskId. */
+export function RemoveTemplateTaskButton({
+  templateId,
+  taskId,
+}: {
+  templateId: string;
+  taskId: string;
+}) {
+  const {run, pending, error} = useMutation();
+  return (
+    <span>
+      <button
+        className='btn btn-ghost'
+        style={{fontSize: 13}}
+        disabled={pending}
+        aria-label='Remove task'
+        onClick={() =>
+          run([
+            () =>
+              send(`/api/templates/${templateId}/tasks/${taskId}`, 'DELETE'),
+          ])
+        }
+      >
+        {pending ? '…' : 'Remove'}
+      </button>
+      {error && <span className='error'> {error}</span>}
+    </span>
   );
 }

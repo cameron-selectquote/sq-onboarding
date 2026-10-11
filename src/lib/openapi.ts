@@ -22,6 +22,7 @@ export const openApiSpec = {
   servers: [{ url: "/", description: "This dev server" }],
   tags: [
     { name: "Hires", description: "Import and read hires" },
+    { name: "Templates", description: "Role templates + their tasks" },
     { name: "Tasks", description: "Onboarding task status" },
     { name: "Licenses", description: "Grant / revoke software seats" },
     { name: "Assets", description: "POs, inventory, returns" },
@@ -159,6 +160,225 @@ export const openApiSpec = {
           },
           "404": {
             description: "Hire not found",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/templates": {
+      get: {
+        tags: ["Templates"],
+        summary: "List role templates with their tasks",
+        responses: {
+          "200": {
+            description: "All templates, each with its template tasks attached",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    templates: {
+                      type: "array",
+                      items: { $ref: "#/components/schemas/TemplateWithTasks" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        tags: ["Templates"],
+        summary: "Create a role template",
+        description:
+          "Role names are unique (case-insensitive) so a hire's `roleName` " +
+          "maps to exactly one template.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["roleName"],
+                properties: { roleName: { type: "string" } },
+              },
+              example: { roleName: "Data Analyst" },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Template created",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    template: { $ref: "#/components/schemas/Template" },
+                  },
+                },
+              },
+            },
+          },
+          "400": {
+            description: "Missing or duplicate roleName",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/templates/{id}/tasks": {
+      post: {
+        tags: ["Templates"],
+        summary: "Add a task to a template",
+        description:
+          "A task with an `appId` grants that software seat when a hire " +
+          "starts it; the app id is validated against the catalog. A `none` " +
+          "cost type forces the cost to 0.",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            example: "tpl_swe",
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/TemplateTaskInput" },
+              example: {
+                title: "Grant GitHub seat",
+                ownerTeam: "it",
+                cost: 21,
+                costType: "recurring",
+                appId: "github",
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "Task added",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    task: { $ref: "#/components/schemas/TemplateTask" },
+                  },
+                },
+              },
+            },
+          },
+          "400": {
+            description: "Validation error or unknown template / app",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/templates/{id}/tasks/{taskId}": {
+      patch: {
+        tags: ["Templates"],
+        summary: "Edit a template task",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            example: "tpl_swe",
+          },
+          {
+            name: "taskId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            example: "tt_swe_3",
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/TemplateTaskInput" },
+              example: { title: "Grant GitHub Enterprise seat", cost: 42 },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Updated task",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    task: { $ref: "#/components/schemas/TemplateTask" },
+                  },
+                },
+              },
+            },
+          },
+          "400": {
+            description: "Validation error or unknown task / app",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
+          },
+        },
+      },
+      delete: {
+        tags: ["Templates"],
+        summary: "Remove a template task",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            example: "tpl_swe",
+          },
+          {
+            name: "taskId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            example: "tt_swe_3",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Task removed",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { ok: { type: "boolean" } },
+                },
+              },
+            },
+          },
+          "400": {
+            description: "Unknown task",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/Error" },
@@ -681,6 +901,66 @@ export const openApiSpec = {
           period: { type: "string" },
           limit: { type: "number" },
           spent: { type: "number" },
+        },
+      },
+      Template: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          roleName: { type: "string" },
+        },
+      },
+      TemplateTask: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          templateId: { type: "string" },
+          title: { type: "string" },
+          ownerTeam: {
+            type: "string",
+            enum: ["hr", "it", "vendor", "facilities", "finance"],
+          },
+          cost: { type: "number" },
+          costType: {
+            type: "string",
+            enum: ["none", "one_time", "recurring"],
+          },
+          appId: {
+            type: "string",
+            nullable: true,
+            description: "If set, starting this task grants the given app seat.",
+          },
+        },
+      },
+      TemplateWithTasks: {
+        allOf: [
+          { $ref: "#/components/schemas/Template" },
+          {
+            type: "object",
+            properties: {
+              tasks: {
+                type: "array",
+                items: { $ref: "#/components/schemas/TemplateTask" },
+              },
+            },
+          },
+        ],
+      },
+      TemplateTaskInput: {
+        type: "object",
+        required: ["title", "ownerTeam"],
+        properties: {
+          title: { type: "string" },
+          ownerTeam: {
+            type: "string",
+            enum: ["hr", "it", "vendor", "facilities", "finance"],
+          },
+          cost: { type: "number" },
+          costType: {
+            type: "string",
+            enum: ["none", "one_time", "recurring"],
+          },
+          appId: { type: "string", nullable: true },
         },
       },
       ImportRequest: {
