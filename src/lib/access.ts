@@ -20,11 +20,7 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 };
 
 /** Teams that have a work queue view. */
-export const QUEUE_TEAMS = [
-  'it',
-  'vendor',
-  'facilities',
-] as const satisfies readonly Team[];
+export const QUEUE_TEAMS = ['it', 'vendor'] as const satisfies readonly Team[];
 export type QueueTeam = (typeof QUEUE_TEAMS)[number];
 
 export type View =
@@ -49,7 +45,6 @@ export const VIEW_PATHS: Record<View, string> = {
   'api-docs': '/api-docs',
   'team:it': '/team/it',
   'team:vendor': '/team/vendor',
-  'team:facilities': '/team/facilities',
 };
 
 const teamViews = QUEUE_TEAMS.map((t) => `team:${t}` as const);
@@ -181,11 +176,7 @@ const NAV: {title: string | null; view: View; items: NavLink[]}[] = [
     view: 'team:vendor',
     items: [{href: '/team/vendor', label: 'Hardware'}],
   },
-  {
-    title: 'Queues',
-    view: 'team:facilities',
-    items: [{href: '/team/facilities', label: 'Facilities'}],
-  },
+
   {
     title: 'People',
     view: 'manager',

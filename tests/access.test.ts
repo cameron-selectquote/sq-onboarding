@@ -21,7 +21,6 @@ describe('role views', () => {
         'specialist',
         'team:it',
         'team:vendor',
-        'team:facilities',
         'api-docs',
       ] as const) {
         expect(canAccess(role, view)).toBe(role === 'admin');
@@ -94,7 +93,7 @@ describe('path access', () => {
       '/home',
       '/finance/reclaim',
       '/specialist/hires',
-      '/team/facilities',
+      '/team/vendor',
       '/manager',
       '/myonboarding',
       '/api-docs',
@@ -159,14 +158,14 @@ describe('demo accounts', () => {
   });
 });
 
-describe("canResetStore", () => {
-  it("allows any role in dev (the API gate still applies first)", () => {
+describe('canResetStore', () => {
+  it('allows any role in dev (the API gate still applies first)', () => {
     for (const role of ROLES) expect(canResetStore(role, false)).toBe(true);
   });
 
-  it("allows only a real admin in production", () => {
-    expect(canResetStore("admin", true)).toBe(true);
-    expect(canResetStore("manager", true)).toBe(false);
-    expect(canResetStore("employee", true)).toBe(false);
+  it('allows only a real admin in production', () => {
+    expect(canResetStore('admin', true)).toBe(true);
+    expect(canResetStore('manager', true)).toBe(false);
+    expect(canResetStore('employee', true)).toBe(false);
   });
 });
