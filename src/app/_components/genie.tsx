@@ -412,7 +412,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
           turns: [
             {
               role: 'genie',
-              text: 'Hi, I\u2019m Genie. What can I help you with today?',
+              text: 'Hi, I\u2019m Sage. What can I help you with today?',
             },
           ],
         });
@@ -507,9 +507,9 @@ export function GenieChat({initialName}: {initialName?: string}) {
   }
 
   return (
-    <section className='panel genie' aria-label='Genie chat'>
+    <section className='panel genie' aria-label='Sage chat'>
       <div className='panel-head'>
-        <span className='panel-title'>Genie</span>
+        <span className='panel-title'>Sage</span>
         <div className='genie-head-right'>
           {engine && (
             <span
@@ -528,7 +528,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
             <button
               type='button'
               className='genie-help-btn'
-              aria-label='What can Genie do?'
+              aria-label='What can Sage do?'
               aria-expanded={helpOpen}
               aria-haspopup='dialog'
               onClick={() => setHelpOpen((o) => !o)}
@@ -544,7 +544,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
                 <div
                   className='genie-help-pop'
                   role='dialog'
-                  aria-label='What Genie can do'
+                  aria-label='What Sage can do'
                 >
                   <div className='genie-help-head'>
                     <span className='genie-help-title'>What I can do</span>
@@ -634,7 +634,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
         {turns.map((t, i) => (
           <div key={i} className={`genie-turn genie-${t.role}`}>
             <span className='genie-who'>
-              {t.role === 'genie' ? 'Genie' : 'You'}
+              {t.role === 'genie' ? 'Sage' : 'You'}
             </span>
             {t.role === 'genie' ?
               <div className='genie-text'>
@@ -656,7 +656,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
         ))}
         {busy && (
           <div className='genie-turn genie-genie'>
-            <span className='genie-who'>Genie</span>
+            <span className='genie-who'>Sage</span>
             <p className='genie-text muted'>Thinking…</p>
           </div>
         )}
@@ -671,7 +671,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
         }}
       >
         <label className='sr-only' htmlFor='genie-input'>
-          Message Genie
+          Message Sage
         </label>
         <input
           id='genie-input'
@@ -718,8 +718,25 @@ export function GenieLauncher() {
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className='genie-launch-dot' aria-hidden />
-        Genie
+        <span className='genie-launch-mark' aria-hidden>
+          <svg viewBox='0 0 24 24' width='22' height='22' role='img' aria-hidden>
+            <path
+              d='M12 21 C12 15 8 12 4 11 C4.5 16 8 19 12 19.5'
+              fill='#F7F9F6'
+              stroke='#2C3E2B'
+              strokeWidth='1.2'
+              strokeLinejoin='round'
+            />
+            <path
+              d='M12 21 C12 15 16 12 20 11 C19.5 16 16 19 12 19.5'
+              fill='#C2E6A1'
+              stroke='#2C3E2B'
+              strokeWidth='1.2'
+              strokeLinejoin='round'
+            />
+          </svg>
+        </span>
+        Sage
       </button>
 
       {open && (
@@ -732,13 +749,13 @@ export function GenieLauncher() {
             className='genie-overlay-panel'
             role='dialog'
             aria-modal='true'
-            aria-label='Genie chat'
+            aria-label='Sage chat'
           >
             <div className='genie-overlay-bar'>
               <button
                 type='button'
                 className='genie-overlay-close'
-                aria-label='Close Genie'
+                aria-label='Close Sage'
                 onClick={() => setOpen(false)}
               >
                 ×

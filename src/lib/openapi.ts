@@ -31,7 +31,7 @@ export const openApiSpec = {
     { name: "AI", description: "Template matching + welcome-brief drafting" },
     {
       name: "Dev",
-      description: "Dev-only tooling. Not available in production builds.",
+      description: "Demo tooling (store reset). Admin-only in production.",
     },
   ],
   paths: {
@@ -773,16 +773,16 @@ export const openApiSpec = {
     "/api/dev/reset": {
       post: {
         tags: ["Dev"],
-        summary: "Reset the store to the seeded baseline (dev only)",
+        summary: "Reset the store to the seeded baseline",
         description:
-          "Wipes every collection and reloads the committed seed, returning " +
-          "the data to its first-boot baseline (red reclaim banner). Handy for " +
+          "Snapshots the current DB to `<db>-backup-<timestamp>`, then wipes " +
+          "every collection and reloads the committed seed, returning the " +
+          "data to its first-boot baseline (red reclaim banner). Handy for " +
           "re-running the demo from a clean slate without restarting the " +
-          "server. Refused with 404 when `NODE_ENV=production`, so it can't " +
-          "touch real data.",
+          "server. In production only an admin account may call it.",
         responses: {
           "200": {
-            description: "Store reset and reseeded",
+            description: "Store backed up, reset, and reseeded",
             content: {
               "application/json": {
                 schema: {
@@ -790,6 +790,11 @@ export const openApiSpec = {
                   properties: {
                     ok: { type: "boolean" },
                     reseeded: { type: "boolean" },
+                    backup: {
+                      type: "string",
+                      nullable: true,
+                      description: "Path of the pre-reset snapshot (null for an in-memory store)",
+                    },
                     counts: {
                       type: "object",
                       additionalProperties: { type: "integer" },
@@ -800,6 +805,7 @@ export const openApiSpec = {
                 example: {
                   ok: true,
                   reseeded: true,
+                  backup: "/app/data/provision.sqlite-backup-2026-10-11T08-40-00-000Z",
                   counts: {
                     companies: 1,
                     hires: 6,
@@ -810,8 +816,8 @@ export const openApiSpec = {
               },
             },
           },
-          "404": {
-            description: "Not available (production build)",
+          "403": {
+            description: "Production build and the caller is not an admin",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/Error" },

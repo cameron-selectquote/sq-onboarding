@@ -25,7 +25,7 @@ export default async function GeniePage() {
 
   return (
     <Shell active='/genie' fill>
-      <PageHead eyebrow={eyebrow} title='Genie' />
+      <PageHead eyebrow={eyebrow} title='Sage' />
       <GenieChat />
     </Shell>
   );

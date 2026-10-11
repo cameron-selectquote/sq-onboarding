@@ -4,44 +4,49 @@
 @import url('https://fonts.googleapis.com/css2?family=Caprasimo:wght@400&family=Figtree:wght@400;600;700&display=swap');
 
 :root {
-  --color-bg: #f5ead8;
-  --color-surface: #ebddc5;
-  --color-text: #201e1d;
-  --color-accent: #c67139;
-  --color-accent-2: #7a8a5e;
-  --color-divider: color-mix(in srgb, #201e1d 16%, transparent);
+  /* Sprout palette — a light-green theme retuned from the original Organic
+     (warm brown) tokens. Brand colors: Sprout Green #4CAF50, Sage Green
+     #87A987, Sapling #C2E6A1, Soft Off-White #F7F9F6, Earth Dark #2C3E2B. */
+  --color-bg: #eef3ea;
+  --color-surface: #fbfcf8;
+  --color-text: #2c3e2b;
+  --color-accent: #4caf50;
+  --color-accent-2: #87a987;
+  --color-divider: color-mix(in srgb, #2c3e2b 16%, transparent);
 
-  /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
-     same step of any role matches the others in visual value. */
-  --color-neutral-100: #f9f4ed;
-  --color-neutral-200: #eee7db;
-  --color-neutral-300: #dcd3c4;
-  --color-neutral-400: #c0b6a5;
-  --color-neutral-500: #a19786;
-  --color-neutral-600: #82796a;
-  --color-neutral-700: #645c50;
-  --color-neutral-800: #474238;
-  --color-neutral-900: #2e2b25;
+  /* Tonal ramps — soft sage-tinted neutrals: enough green warmth to feel
+     organic, still muted so the accents lead. */
+  --color-neutral-100: #f2f6ee;
+  --color-neutral-200: #e6ece0;
+  --color-neutral-300: #d4dccc;
+  --color-neutral-400: #b4bfaa;
+  --color-neutral-500: #929d88;
+  --color-neutral-600: #717c68;
+  --color-neutral-700: #566050;
+  --color-neutral-800: #3c4538;
+  --color-neutral-900: #262c23;
 
-  --color-accent-100: #fff2eb;
-  --color-accent-200: #ffe1d0;
-  --color-accent-300: #ffc6a5;
-  --color-accent-400: #f6a06b;
-  --color-accent-500: #d67f48;
-  --color-accent-600: #b2622d;
-  --color-accent-700: #8c491a;
-  --color-accent-800: #643312;
-  --color-accent-900: #402310;
+  /* Accent ramp — Sprout Green */
+  --color-accent-100: #e8f6e9;
+  --color-accent-200: #c8e9ca;
+  --color-accent-300: #9ed7a2;
+  --color-accent-400: #6fc175;
+  --color-accent-500: #4caf50;
+  --color-accent-600: #3d9142;
+  --color-accent-700: #2f7234;
+  --color-accent-800: #235427;
+  --color-accent-900: #17371a;
 
-  --color-accent-2-100: #f0fae1;
-  --color-accent-2-200: #e1eecc;
-  --color-accent-2-300: #ccdbb2;
-  --color-accent-2-400: #aebf92;
-  --color-accent-2-500: #8fa073;
-  --color-accent-2-600: #728157;
-  --color-accent-2-700: #56633f;
-  --color-accent-2-800: #3d472b;
-  --color-accent-2-900: #272e1b;
+  /* Secondary accent — Sage Green */
+  --color-accent-2-100: #eef3ec;
+  --color-accent-2-200: #dce7d8;
+  --color-accent-2-300: #c3d4bd;
+  --color-accent-2-400: #a7bfa0;
+  --color-accent-2-500: #87a987;
+  --color-accent-2-600: #6d8e6d;
+  --color-accent-2-700: #556f55;
+  --color-accent-2-800: #3d503d;
+  --color-accent-2-900: #273227;
 
   --font-heading: 'Caprasimo', system-ui, sans-serif;
   --font-heading-weight: 400;
@@ -60,9 +65,9 @@
 
   /* Elevation — derived from the ground: soft ink-tinted shadows on a
      light theme, a hairline edge + ambient darkness on a dark one. */
-  --shadow-sm: 0 1px 2px color-mix(in srgb, #2e2b25 14%, transparent);
-  --shadow-md: 0 3px 10px color-mix(in srgb, #2e2b25 16%, transparent);
-  --shadow-lg: 0 12px 32px color-mix(in srgb, #2e2b25 22%, transparent);
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #262e24 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #262e24 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #262e24 22%, transparent);
 }
 
 body {

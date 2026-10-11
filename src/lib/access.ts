@@ -129,6 +129,18 @@ export function canCallApi(role: AppRole): boolean {
   return role !== 'employee';
 }
 
+/**
+ * May this account wipe and reseed the store (POST /api/dev/reset)? In dev,
+ * anyone who passed the API gate. In production, only a real admin — checked
+ * against the account's real role, not the role it is viewing as.
+ */
+export function canResetStore(
+  realRole: AppRole,
+  isProduction: boolean,
+): boolean {
+  return !isProduction || realRole === 'admin';
+}
+
 /** Only a real admin gets the role picker. */
 export function canSwitchRole(realRole: AppRole): boolean {
   return realRole === 'admin';
@@ -185,7 +197,7 @@ const NAV: {title: string | null; view: View; items: NavLink[]}[] = [
     view: 'myonboarding',
     items: [{href: '/myonboarding', label: 'My onboarding'}],
   },
-  // Genie is reached from the global launcher icon (top-right, every page), so
+  // Sage is reached from the global launcher icon (top-right, every page), so
   // it's intentionally not in the sidebar. The `genie` view still gates
   // /genie + /api/genie access per role.
   {

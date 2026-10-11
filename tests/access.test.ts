@@ -3,6 +3,7 @@ import {
   canAccess,
   canCallApi,
   canOpenPath,
+  canResetStore,
   canSwitchRole,
   homePathFor,
   isAppRole,
@@ -155,5 +156,17 @@ describe('demo accounts', () => {
     expect(findAccount(' Admin ')?.role).toBe('admin');
     expect(findAccount('nobody')).toBeNull();
     expect(findAccount('')).toBeNull();
+  });
+});
+
+describe("canResetStore", () => {
+  it("allows any role in dev (the API gate still applies first)", () => {
+    for (const role of ROLES) expect(canResetStore(role, false)).toBe(true);
+  });
+
+  it("allows only a real admin in production", () => {
+    expect(canResetStore("admin", true)).toBe(true);
+    expect(canResetStore("manager", true)).toBe(false);
+    expect(canResetStore("employee", true)).toBe(false);
   });
 });

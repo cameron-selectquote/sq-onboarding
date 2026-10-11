@@ -9,9 +9,12 @@ import {
   financeSummary,
   forecastBurn,
   isOverspent,
+  financeHeroState,
   quarterLabel,
   quarterMonths,
+  rangeStart,
   reclaimImpact,
+  recoveredThisQuarter,
   monthlyCost,
   monthlySpend,
   monthOverMonth,
@@ -21,6 +24,7 @@ import {
   recurringMonthlyBurn,
   residualValue,
 } from "@/lib/finance";
+import { sum } from "@/lib/ledger";
 import type { BvAReport } from "@/lib/finance";
 import type {
   AppCatalogItem,
@@ -249,6 +253,22 @@ describe("cumulativeRecurringBurn", () => {
     ]);
     expect(series.map((p) => p.burn)).toEqual([21, 0]);
   });
+
+  it("fills quiet months, carrying the burn rate forward across gaps and year boundaries", () => {
+    const series = cumulativeRecurringBurn([
+      mk("a", 8, "recurring", "2025-11-10T00:00:00.000Z"),
+      // Dec 2025 and Jan 2026 are quiet — no ledger delta
+      mk("b", 21, "recurring", "2026-02-05T00:00:00.000Z"),
+    ]);
+    // Every calendar month from first to last appears, in order, with quiet
+    // months holding the prior rate (Nov 8 -> Dec 8 -> Jan 8 -> Feb 29).
+    expect(series.map((p) => [p.month, p.burn])).toEqual([
+      ["2025-11", 8],
+      ["2025-12", 8],
+      ["2026-01", 8],
+      ["2026-02", 29],
+    ]);
+  });
 });
 
 describe("burnDelta", () => {
@@ -420,6 +440,154 @@ describe("reclaimImpact", () => {
   });
 });
 
+describe("financeHeroState", () => {
+  const bvaWith = (projectedVariance: number, remainingMonths: number): BvAReport => ({
+    quarter: "2026-Q1",
+    months: [],
+    budget: 3000,
+    actualToDate: 0,
+    projectedEndOfQuarter: 3000 + projectedVariance,
+    budgetToDate: 0,
+    varianceToDate: 0,
+    projectedVariance,
+    crossoverMonth: null,
+    remainingMonths,
+  });
+
+  it("is 'overage' with bringsUnderBudget when reclaim clears the projected overage", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100)); // saves 200 -> under
+    expect(state.kind).toBe("overage");
+    if (state.kind !== "overage") throw new Error("expected overage");
+    expect(state.bringsUnderBudget).toBe(true);
+    expect(state.projectedVariance).toBe(150);
+    expect(state.quarterSavings).toBe(200);
+    expect(state.projectedVarianceAfter).toBe(-50);
+  });
+
+  it("is 'overage' without bringsUnderBudget when reclaim only trims it", () => {
+    const bva = bvaWith(500, 1);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100)); // saves 100 -> still over
+    expect(state.kind).toBe("overage");
+    if (state.kind !== "overage") throw new Error("expected overage");
+    expect(state.bringsUnderBudget).toBe(false);
+    expect(state.projectedVarianceAfter).toBe(400);
+  });
+
+  it("is 'healthy' (under budget) when projected under, carrying the amount under", () => {
+    const bva = bvaWith(-200, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100));
+    expect(state.kind).toBe("healthy");
+    if (state.kind !== "healthy") throw new Error("expected healthy");
+    expect(state.amount).toBe(200);
+    expect(state.overBudget).toBe(false);
+  });
+
+  it("is 'healthy' (no CTA) when projected over but nothing is reclaimable", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 0)); // nothing reclaimable
+    expect(state.kind).toBe("healthy");
+    if (state.kind !== "healthy") throw new Error("expected healthy");
+    expect(state.amount).toBe(150);
+    expect(state.overBudget).toBe(true);
+  });
+
+  it("is 'onplan' when the projected variance rounds to $0 and nothing is reclaimable", () => {
+    const bva = bvaWith(0.4, 2); // +$0.40 rounds to $0; not an actionable overage
+    const state = financeHeroState(bva, reclaimImpact(bva, 0));
+    expect(state.kind).toBe("onplan");
+  });
+
+  it("is 'onplan' when exactly on budget", () => {
+    const bva = bvaWith(0, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100));
+    expect(state.kind).toBe("onplan");
+  });
+
+  it("is 'inflight' when projected over, reclaimable, and every seat is already flagged", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100), {
+      actionableMonthly: 0,
+      inFlightMonthly: 100,
+    });
+    expect(state.kind).toBe("inflight");
+    if (state.kind !== "inflight") throw new Error("expected inflight");
+    expect(state.inFlightMonthly).toBe(100);
+    expect(state.projectedVariance).toBe(150);
+    expect(state.budget).toBe(3000);
+  });
+
+  it("stays 'overage' when some seats are still actionable (partial in-flight)", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100), {
+      actionableMonthly: 40,
+      inFlightMonthly: 60,
+    });
+    expect(state.kind).toBe("overage");
+  });
+
+  it("stays 'overage' when the in-flight split is omitted (back-compat)", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100));
+    expect(state.kind).toBe("overage");
+  });
+
+  it("is not 'inflight' when there's no projected overage, regardless of in-flight info", () => {
+    const bva = bvaWith(-200, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100), {
+      actionableMonthly: 0,
+      inFlightMonthly: 100,
+    });
+    expect(state.kind).toBe("healthy");
+  });
+});
+
+describe("recoveredThisQuarter", () => {
+  const asOf = new Date("2026-02-15T00:00:00Z"); // Q1 2026 -> months 01,02,03
+  const mk = (
+    id: string,
+    amount: number,
+    type: LedgerEntry["type"],
+    costType: "recurring" | "one_time",
+    createdAt: string,
+  ): LedgerEntry =>
+    ({ id, hireId: "h1", type, label: id, amount, costType, refTable: null, refId: null, createdAt });
+
+  it("sums recurring license_revoke credits dated in the quarter as a positive number", () => {
+    const entries: LedgerEntry[] = [
+      mk("a", -30, "license_revoke", "recurring", "2026-01-10T00:00:00.000Z"),
+      mk("b", -20, "license_revoke", "recurring", "2026-03-05T00:00:00.000Z"),
+    ];
+    expect(recoveredThisQuarter(entries, asOf)).toBe(50);
+  });
+
+  it("excludes one-time credits (e.g. asset returns)", () => {
+    const entries: LedgerEntry[] = [
+      mk("a", -400, "asset_return", "one_time", "2026-02-01T00:00:00.000Z"),
+    ];
+    expect(recoveredThisQuarter(entries, asOf)).toBe(0);
+  });
+
+  it("excludes positive recurring entries (grants)", () => {
+    const entries: LedgerEntry[] = [
+      mk("a", 30, "license_grant", "recurring", "2026-02-01T00:00:00.000Z"),
+    ];
+    expect(recoveredThisQuarter(entries, asOf)).toBe(0);
+  });
+
+  it("excludes recurring reclaim credits dated outside the current quarter", () => {
+    const entries: LedgerEntry[] = [
+      mk("a", -30, "license_revoke", "recurring", "2025-12-20T00:00:00.000Z"),
+      mk("b", -20, "license_revoke", "recurring", "2026-04-05T00:00:00.000Z"),
+    ];
+    expect(recoveredThisQuarter(entries, asOf)).toBe(0);
+  });
+
+  it("returns 0 for empty input", () => {
+    expect(recoveredThisQuarter([], asOf)).toBe(0);
+  });
+});
+
 describe("assetsOnHand", () => {
   it("counts only in_stock assets", () => {
     const assets: Asset[] = [
@@ -427,6 +595,94 @@ describe("assetsOnHand", () => {
       { id: "a2", catalogId: "mbp", serialTag: "y", status: "assigned", assignedToHireId: "h1", acquiredAt: null, returnedAt: null },
     ];
     expect(assetsOnHand(assets)).toBe(1);
+  });
+});
+
+describe("rangeStart", () => {
+  // Fixed, mid-month `now` so results are timezone-robust and deterministic.
+  const now = new Date(2026, 5, 15); // June 15, 2026 (local)
+
+  it("returns the first of the start month, inclusive of the current month", () => {
+    // 3m window = current month + 2 prior = Apr, May, Jun -> starts Apr 1
+    expect(rangeStart(now, "3m")).toEqual(new Date(2026, 3, 1));
+    // 6m window -> starts Jan 1 2026
+    expect(rangeStart(now, "6m")).toEqual(new Date(2026, 0, 1));
+    // 12m window -> starts Jul 1 2025
+    expect(rangeStart(now, "12m")).toEqual(new Date(2025, 6, 1));
+  });
+
+  it("returns null for 'all' (no lower bound)", () => {
+    expect(rangeStart(now, "all")).toBeNull();
+  });
+
+  it("rolls the start month across a year boundary", () => {
+    const feb = new Date(2026, 1, 10); // Feb 10, 2026
+    // 3m window = Feb + Jan + Dec -> starts Dec 1, 2025
+    expect(rangeStart(feb, "3m")).toEqual(new Date(2025, 11, 1));
+  });
+
+  it("always lands on the first day of a month", () => {
+    for (const r of ["3m", "6m", "12m"] as const) {
+      const d = rangeStart(now, r)!;
+      expect(d.getDate()).toBe(1);
+    }
+  });
+});
+
+describe("range filter → finance derivations", () => {
+  const mk = (id: string, amount: number, costType: "recurring" | "one_time", createdAt: string): LedgerEntry =>
+    ({ id, hireId: "h1", type: "fee", label: id, amount, costType, refTable: null, refId: null, createdAt });
+
+  // Entries spanning Mar–Jun 2026, recurring + one-time.
+  const entries: LedgerEntry[] = [
+    mk("a", 21, "recurring", "2026-03-10T00:00:00.000Z"),
+    mk("b", 2400, "one_time", "2026-03-20T00:00:00.000Z"),
+    mk("c", 8, "recurring", "2026-04-05T00:00:00.000Z"),
+    mk("d", 15, "recurring", "2026-05-05T00:00:00.000Z"),
+    mk("e", 100, "one_time", "2026-06-01T00:00:00.000Z"),
+    mk("f", 5, "recurring", "2026-06-10T00:00:00.000Z"),
+  ];
+  const now = new Date(2026, 5, 15); // June 15, 2026 (local)
+
+  const applyRange = (range: Parameters<typeof rangeStart>[1]) => {
+    const start = rangeStart(now, range);
+    return start === null
+      ? entries
+      : entries.filter((e) => new Date(e.createdAt).getTime() >= start.getTime());
+  };
+
+  it("scopes cumulativeRecurringBurn and the total to the 3m window", () => {
+    // 3m from June -> start Apr 1: keeps c (Apr), d (May), e+f (Jun). Drops Mar.
+    const filtered = applyRange("3m");
+    expect(filtered.map((e) => e.id)).toEqual(["c", "d", "e", "f"]);
+    // recurring burn runs Apr 8 -> May 23 -> Jun 28
+    expect(cumulativeRecurringBurn(filtered).map((p) => [p.month, p.burn])).toEqual([
+      ["2026-04", 8],
+      ["2026-05", 23],
+      ["2026-06", 28],
+    ]);
+    // scoped total = 8 + 15 + 100 + 5 = 128
+    expect(sum(filtered.map((e) => e.amount))).toBe(128);
+  });
+
+  it("range=all uses the full ledger (identical to today's full-history numbers)", () => {
+    expect(rangeStart(now, "all")).toBeNull();
+    const filtered = applyRange("all");
+    expect(filtered).toEqual(entries);
+    // Full-history total matches summing every entry (what summary.totalSpend holds).
+    expect(sum(filtered.map((e) => e.amount))).toBe(2549);
+    expect(cumulativeRecurringBurn(filtered)).toEqual(cumulativeRecurringBurn(entries));
+  });
+
+  it("an empty window yields no burn points and a safe (non-zero) max divisor", () => {
+    // No entries after this far-future boundary.
+    const empty = entries.filter((e) => new Date(e.createdAt).getTime() >= new Date(2030, 0, 1).getTime());
+    expect(empty).toHaveLength(0);
+    const series = cumulativeRecurringBurn(empty);
+    expect(series).toEqual([]);
+    // The page normalizes with Math.max(1, ...burns) so an empty series can't
+    // divide by zero and the empty-state copy renders instead of a broken chart.
+    expect(Math.max(1, ...series.map((p) => p.burn))).toBe(1);
   });
 });
 
