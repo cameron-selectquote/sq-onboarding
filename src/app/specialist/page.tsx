@@ -1,8 +1,14 @@
 import {getServices} from '@/server/store';
-import {hireProgress, hireStatus, type HireStatus} from '@/lib/progress';
+import {
+  hireProgress,
+  hireStatus,
+  teamCell,
+  type HireStatus,
+  type TeamCell,
+} from '@/lib/progress';
 import {OFFBOARDING_COHORT} from '@/lib/cohorts';
-import type {Hire} from '@/lib/types';
-import {Avatar, PageHead, SegLinks, Shell} from '../_components/Shell';
+import type {Hire, Team} from '@/lib/types';
+import {Avatar, Kpi, PageHead, SegLinks, Shell} from '../_components/Shell';
 import {ClickCard} from '../_components/actions';
 import {isTeam, shortDate, teamLabel} from '../_components/format';
 
@@ -16,9 +22,16 @@ const COLUMNS: {name: string; status: HireStatus}[] = [
 ];
 
 const FILTERS = ['hr', 'it', 'vendor', 'facilities'] as const;
+const MATRIX_TEAMS: Team[] = ['hr', 'it', 'vendor', 'facilities'];
 
-/** Specialist board (design 2a): every hire bucketed by onboarding status. */
-export default async function SpecialistBoard({
+/**
+ * Specialist onboarding workspace — Board + Hires on one page.
+ *
+ * Top: KPIs (ready / on track / blocked). Middle: the kanban board, every
+ * active hire bucketed by onboarding status (team filter via the segmented
+ * control). Bottom: the hire × team matrix, who's ready and who's stuck.
+ */
+export default async function SpecialistWorkspace({
   searchParams,
 }: {
   searchParams: Promise<{team?: string}>;
@@ -29,18 +42,49 @@ export default async function SpecialistBoard({
     repo.hires.list(),
     repo.tasks.list(),
   ]);
-  // Offboarding hires drop off the active board (they live on the reclaim view).
+
+  // Offboarding hires drop off the active workspace (they live on reclaim).
   const hires = allHires.filter((h) => h.cohort !== OFFBOARDING_COHORT);
   const offboardingCount = allHires.length - hires.length;
-  const tasks =
-    isTeam(team) ? allTasks.filter((t) => t.ownerTeam === team) : allTasks;
 
-  const cards = hires
+  // One row per hire (sorted by start date) carrying its tasks + progress;
+  // the board, KPIs, and matrix all read from this.
+  const rows = hires
     .map((hire) => {
-      const mine = tasks.filter((t) => t.hireId === hire.id);
-      return {hire, status: hireStatus(mine), progress: hireProgress(mine)};
+      const mine = allTasks.filter((t) => t.hireId === hire.id);
+      return {
+        hire,
+        tasks: mine,
+        status: hireStatus(mine),
+        progress: hireProgress(mine),
+      };
     })
     .sort((a, b) => a.hire.startDate.localeCompare(b.hire.startDate));
+
+  // KPIs over every active hire (unaffected by the board's team filter).
+  const ready = rows.filter(
+    (r) => r.progress.total > 0 && r.progress.done === r.progress.total,
+  ).length;
+  const blocked = rows.filter((r) => r.progress.blocked).length;
+  const onTrack = rows.length - ready - blocked;
+
+  // The board can be filtered to a single owning team; the matrix always shows
+  // the full picture. When filtered, re-bucket by the team's tasks only.
+  const boardCards =
+    isTeam(team) ?
+      rows.map((r) => {
+        const teamTasks = r.tasks.filter((t) => t.ownerTeam === team);
+        return {
+          hire: r.hire,
+          status: hireStatus(teamTasks),
+          progress: hireProgress(teamTasks),
+        };
+      })
+    : rows.map((r) => ({
+        hire: r.hire,
+        status: r.status,
+        progress: r.progress,
+      }));
 
   const cohorts = [...new Set(hires.map((h) => h.cohort).filter(Boolean))].join(
     ', ',
@@ -51,21 +95,38 @@ export default async function SpecialistBoard({
 
   return (
     <Shell active='/specialist'>
-      <PageHead eyebrow={eyebrow} title='Onboarding board'>
-        <SegLinks
-          active={isTeam(team) ? `/specialist?team=${team}` : '/specialist'}
-          options={[
-            {href: '/specialist', label: 'All teams'},
-            ...FILTERS.map((t) => ({
-              href: `/specialist?team=${t}`,
-              label: teamLabel(t),
-            })),
-          ]}
-        />
-      </PageHead>
+      <PageHead eyebrow={eyebrow} title='Onboarding board' />
+
+      <div className='kpis'>
+        <Kpi label='Ready' value={ready} sub='ready for day one' tone='good' />
+        <Kpi label='On track' value={onTrack} sub='moving along' />
+        <Kpi label='Blocked' value={blocked} sub='need a nudge' tone='warn' />
+      </div>
+
+      {/* Middle: the kanban board, with the team filter above it. */}
+      <div className='head' style={{marginBottom: 0}}>
+        <div className='head-text'>
+          <span className='eyebrow'>Board</span>
+          <h2 className='title' style={{fontSize: 22}}>
+            By onboarding status
+          </h2>
+        </div>
+        <div className='actions'>
+          <SegLinks
+            active={isTeam(team) ? `/specialist?team=${team}` : '/specialist'}
+            options={[
+              {href: '/specialist', label: 'All teams'},
+              ...FILTERS.map((t) => ({
+                href: `/specialist?team=${t}`,
+                label: teamLabel(t),
+              })),
+            ]}
+          />
+        </div>
+      </div>
       <div className='board'>
         {COLUMNS.map((col) => {
-          const inCol = cards.filter((c) => c.status === col.status);
+          const inCol = boardCards.filter((c) => c.status === col.status);
           return (
             <section key={col.name} className='col' aria-label={col.name}>
               <div className='col-head'>
@@ -87,8 +148,66 @@ export default async function SpecialistBoard({
           );
         })}
       </div>
+
+      {/* Bottom: the hire × team matrix — who's ready, who's stuck. */}
+      <div className='head' style={{marginBottom: 0, marginTop: 28}}>
+        <div className='head-text'>
+          <span className='eyebrow'>Hires</span>
+          <h2 className='title' style={{fontSize: 22}}>
+            Who&rsquo;s ready, who&rsquo;s stuck
+          </h2>
+        </div>
+      </div>
+      <div className='panel' style={{gap: 0, paddingTop: 8}}>
+        <div className='row row-matrix is-head' role='row'>
+          <span>Hire</span>
+          {MATRIX_TEAMS.map((t) => (
+            <span key={t}>{teamLabel(t)}</span>
+          ))}
+          <span>Start</span>
+        </div>
+        {rows.length === 0 && <span className='empty'>No hires yet.</span>}
+        {rows.map(({hire, tasks: mine}) => (
+          <ClickCard key={hire.id} href={`/specialist/hires/${hire.id}`}>
+            <div
+              className='row row-matrix'
+              style={{borderTop: '1px solid var(--color-divider)'}}
+              title='Click to open'
+            >
+              <div className='who'>
+                <Avatar name={hire.name} />
+                <div className='who-text'>
+                  <span className='who-name'>{hire.name}</span>
+                  <span className='who-sub'>{hire.roleName}</span>
+                </div>
+              </div>
+              {MATRIX_TEAMS.map((t) => (
+                <Cell key={t} cell={teamCell(mine, t)} />
+              ))}
+              <span style={{fontSize: 13}}>{shortDate(hire.startDate)}</span>
+            </div>
+          </ClickCard>
+        ))}
+      </div>
     </Shell>
   );
+}
+
+function Cell({cell}: {cell: TeamCell}) {
+  switch (cell.kind) {
+    case 'none':
+      return <span className='muted'>—</span>;
+    case 'done':
+      return <span className='pill pill-done'>Done</span>;
+    case 'blocked':
+      return <span className='pill pill-blocked'>Blocked</span>;
+    case 'not_started':
+      return <span className='pill pill-none'>Not started</span>;
+    case 'progress':
+      return (
+        <span className='pill pill-progress'>{`${cell.done} of ${cell.total}`}</span>
+      );
+  }
 }
 
 function HireCard({

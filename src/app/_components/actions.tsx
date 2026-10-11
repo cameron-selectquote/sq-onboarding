@@ -200,15 +200,24 @@ export function MarkReadButton({id}: {id: string}) {
   );
 }
 
-/** Open a reclaim job per seat — POST /api/reclaim-tasks (finance flags, IT executes). */
+/**
+ * Reclaim a seat directly — POST /api/licenses/:id/revoke per license. The
+ * revoke credits the ledger immediately and drops the seat from burn, so the
+ * row simply disappears from the reclaim queue on refresh (revoked seats are no
+ * longer reclaimable). No job is created — finance reclaiming is one step, not
+ * a hand-off, so nothing lands in a bottom queue.
+ *
+ * `createdByTeam` is accepted (and ignored) only so existing call sites don't
+ * have to change; a direct revoke has no "flagged by" team.
+ */
 export function ReclaimButton({
   licenseIds,
-  createdByTeam,
   label,
   className = 'btn btn-secondary',
 }: {
   licenseIds: string[];
-  createdByTeam: 'finance' | 'it';
+  /** Accepted for call-site compatibility; a direct revoke has no team. */
+  createdByTeam?: 'finance' | 'it';
   label: string;
   className?: string;
 }) {
@@ -221,11 +230,7 @@ export function ReclaimButton({
         onClick={() =>
           run(
             licenseIds.map(
-              (id) => () =>
-                send('/api/reclaim-tasks', 'POST', {
-                  licenseId: id,
-                  createdByTeam,
-                }),
+              (id) => () => send(`/api/licenses/${id}/revoke`, 'POST'),
             ),
           )
         }
@@ -417,7 +422,12 @@ export function CreateTemplateForm() {
 
   return (
     <form
-      style={{display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap'}}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: 12,
+        flexWrap: 'wrap',
+      }}
       onSubmit={(e) => {
         e.preventDefault();
         if (!roleName.trim()) return;
@@ -579,7 +589,11 @@ export function AddTemplateTaskForm({
       >
         {pending ? 'Adding…' : 'Add task'}
       </button>
-      {error && <span className='error' style={{flexBasis: '100%'}}>{error}</span>}
+      {error && (
+        <span className='error' style={{flexBasis: '100%'}}>
+          {error}
+        </span>
+      )}
     </form>
   );
 }

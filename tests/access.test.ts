@@ -21,7 +21,6 @@ describe('role views', () => {
         'specialist',
         'team:it',
         'team:vendor',
-        'team:facilities',
         'api-docs',
       ] as const) {
         expect(canAccess(role, view)).toBe(role === 'admin');
@@ -89,17 +88,20 @@ describe('path access', () => {
     expect(canOpenPath('manager', '/myonboarding')).toBe(false);
   });
 
-  it('admin can open everything', () => {
+  it('admin can open its own sections but not the People views', () => {
     for (const p of [
       '/home',
       '/finance/reclaim',
       '/specialist/hires',
-      '/team/facilities',
-      '/manager',
-      '/myonboarding',
+      '/team/vendor',
       '/api-docs',
     ]) {
       expect(canOpenPath('admin', p)).toBe(true);
+    }
+    // "My hires" (manager) and "My onboarding" (employee) belong to those
+    // roles — the admin sidebar no longer surfaces the People section.
+    for (const p of ['/manager', '/myonboarding']) {
+      expect(canOpenPath('admin', p)).toBe(false);
     }
   });
 
@@ -125,7 +127,7 @@ describe('sidebar nav', () => {
     expect(hrefs('employee')).toEqual(['/home', '/myonboarding']);
   });
 
-  it('admin nav reaches every section', () => {
+  it('admin nav reaches every section it owns', () => {
     const all = hrefs('admin');
     for (const href of [
       '/home',
@@ -133,11 +135,13 @@ describe('sidebar nav', () => {
       '/finance',
       '/finance/reclaim',
       '/team/it',
-      '/manager',
-      '/myonboarding',
       '/api-docs',
     ]) {
       expect(all).toContain(href);
+    }
+    // The People views aren't in the admin sidebar.
+    for (const href of ['/manager', '/myonboarding']) {
+      expect(all).not.toContain(href);
     }
   });
 });
@@ -159,14 +163,14 @@ describe('demo accounts', () => {
   });
 });
 
-describe("canResetStore", () => {
-  it("allows any role in dev (the API gate still applies first)", () => {
+describe('canResetStore', () => {
+  it('allows any role in dev (the API gate still applies first)', () => {
     for (const role of ROLES) expect(canResetStore(role, false)).toBe(true);
   });
 
-  it("allows only a real admin in production", () => {
-    expect(canResetStore("admin", true)).toBe(true);
-    expect(canResetStore("manager", true)).toBe(false);
-    expect(canResetStore("employee", true)).toBe(false);
+  it('allows only a real admin in production', () => {
+    expect(canResetStore('admin', true)).toBe(true);
+    expect(canResetStore('manager', true)).toBe(false);
+    expect(canResetStore('employee', true)).toBe(false);
   });
 });
