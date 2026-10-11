@@ -82,7 +82,22 @@ a.seg-opt[aria-current="page"] { background: var(--color-accent-100); color: var
 .row-matrix { grid-template-columns: minmax(0, 2.2fr) repeat(4, minmax(0, 1fr)) 90px; gap: 10px; }
 .row-matrix.is-head { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-neutral-700); }
 .row-reclaim { grid-template-columns: 44px minmax(0, 1fr) auto auto; gap: 14px; }
-.row-seat { grid-template-columns: minmax(0, 1fr) auto; }
+.row-seat { grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; }
+
+/* — reclaim drill-down (expandable group + nested seats) — */
+.reclaim-group { border-top: 1px solid var(--color-divider); }
+.reclaim-group:first-child { border-top: 0; }
+.reclaim-group > summary { cursor: pointer; list-style: none; }
+.reclaim-group > summary::-webkit-details-marker { display: none; }
+.reclaim-group > summary > .who-name::before { content: "▸ "; color: var(--color-neutral-700); }
+.reclaim-group[open] > summary > .who-name::before { content: "▾ "; }
+/* nested seats sit visually inside the group: inset + accent rail + tint */
+.reclaim-seats {
+  margin: 0 0 8px 44px;
+  padding-left: 14px;
+  border-left: 2px solid var(--color-divider);
+}
+.reclaim-seats .row:first-child { border-top: 0; }
 .row-check { display: flex; align-items: center; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--color-divider); }
 .row-check:last-child { border-bottom: 0; }
 .amt { font-size: 14px; font-weight: 700; text-align: right; }

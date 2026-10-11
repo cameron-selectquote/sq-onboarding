@@ -594,6 +594,16 @@ export const seedData: SeedData = {
       grantedAt: daysAgo(75),
       lastUsedAt: daysAgo(48),
     },
+    // Second idle GitHub seat (different hire) so "Idle GitHub seats" groups to
+    // 2 — exercises the expandable drill-down with a per-seat revoke.
+    {
+      id: 'lic_15',
+      hireId: 'hire_3',
+      appId: 'github',
+      status: 'idle',
+      grantedAt: daysAgo(70),
+      lastUsedAt: daysAgo(42),
+    },
     {
       id: 'lic_14',
       hireId: 'hire_5',

@@ -7,7 +7,7 @@ import { buildBvA, financeSummary, monthlyCost, reclaimImpact, recurringMonthlyB
 import { buildReclaimReport } from "@/lib/reclaim";
 import type { LicenseReclaimFlag } from "@/lib/reclaim";
 import type { BvAReport, FinanceSummary, ReclaimImpact } from "@/lib/finance";
-import type { AppCatalogItem, Budget, LedgerEntry, License } from "@/lib/types";
+import type { AppCatalogItem, Budget, Hire, LedgerEntry, License } from "@/lib/types";
 import { OFFBOARDING_COHORT } from "@/data/seed";
 import { getServices } from "./store";
 
@@ -87,6 +87,18 @@ const WHY: Record<string, string> = {
   role_mismatch: "Outside the role's stack",
 };
 
+export interface ReclaimSeat {
+  licenseId: string;
+  /** Hire holding the seat, or null if unassigned. */
+  hireName: string | null;
+  /** App display name. */
+  app: string;
+  /** Per-seat monthly cost. */
+  monthly: number;
+  /** The specific evidence for flagging (e.g. "Unused for 50 days (threshold 30)"). */
+  detail: string;
+}
+
 export interface QueueRow {
   key: string;
   /** The reclaim reason this row aggregates (idle/reclaim/duplicate/role_mismatch). */
@@ -95,6 +107,8 @@ export interface QueueRow {
   why: string;
   licenseIds: string[];
   monthly: number;
+  /** Individual seats behind this row, for drill-down. */
+  seats: ReclaimSeat[];
 }
 
 /**
@@ -106,9 +120,11 @@ function toQueueRows(
   licenseFlags: LicenseReclaimFlag[],
   licenses: License[],
   apps: AppCatalogItem[],
+  hires: Hire[],
 ): QueueRow[] {
   const appById = new Map(apps.map((a) => [a.id, a]));
   const licenseById = new Map(licenses.map((l) => [l.id, l]));
+  const hireById = new Map(hires.map((h) => [h.id, h]));
 
   const rows = new Map<string, QueueRow>();
   for (const flag of licenseFlags) {
@@ -124,9 +140,18 @@ function toQueueRows(
       why: WHY[reason] ?? reason,
       licenseIds: [],
       monthly: 0,
+      seats: [],
     };
+    const seatCost = monthlyCost(app.costPerSeat, app.billing);
     row.licenseIds.push(license.id);
-    row.monthly += monthlyCost(app.costPerSeat, app.billing);
+    row.monthly += seatCost;
+    row.seats.push({
+      licenseId: license.id,
+      hireName: hireById.get(license.hireId)?.name ?? null,
+      app: app.name,
+      monthly: seatCost,
+      detail: flag.detail,
+    });
     rows.set(key, row);
   }
   return [...rows.values()].sort((a, b) => b.monthly - a.monthly);
@@ -159,7 +184,7 @@ export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: nu
     offboardingHireIds,
   });
 
-  const rows = toQueueRows(report.licenseFlags, licenses, apps);
+  const rows = toQueueRows(report.licenseFlags, licenses, apps, hires);
   return { rows, monthly: report.recurringMonthly };
 }
 

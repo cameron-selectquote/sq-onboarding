@@ -46,17 +46,52 @@ export default async function FinanceReclaim() {
           <span className="panel-title" style={{ paddingBottom: 8 }}>Reclaim queue</span>
           {queue.length === 0 && <span className="empty">No idle, flagged or duplicate seats.</span>}
           <div className="rows">
-            {queue.map((r) => (
-              <div key={r.key} className="row row-reclaim">
-                <span className="n-dot">{r.licenseIds.length}</span>
-                <div className="who-text">
-                  <span className="who-name">{r.what}</span>
-                  <span className="who-sub">{r.why}</span>
-                </div>
-                <span className="amt">{money(Math.round(r.monthly * 100) / 100)}/mo</span>
-                <LicenseButton action="revoke" label={`Revoke ${r.licenseIds.length}`} licenseIds={r.licenseIds} />
-              </div>
-            ))}
+            {queue.map((r) => {
+              // A single-seat "group" isn't a group — show it as one plain row
+              // (hire + evidence inline, one Revoke). No expand, no duplicate button.
+              if (r.seats.length === 1) {
+                const s = r.seats[0]!;
+                return (
+                  <div key={r.key} className="row row-reclaim">
+                    <span className="n-dot">1</span>
+                    <div className="who-text">
+                      <span className="who-name">{r.what}</span>
+                      <span className="who-sub">
+                        {s.hireName ?? "Unassigned"} · {s.detail}
+                      </span>
+                    </div>
+                    <span className="amt">{money(Math.round(r.monthly * 100) / 100)}/mo</span>
+                    <LicenseButton action="revoke" label="Revoke" licenseIds={r.licenseIds} />
+                  </div>
+                );
+              }
+              // Multi-seat group: expandable, with a per-seat drill-down.
+              return (
+                <details key={r.key} className="reclaim-group">
+                  <summary className="row row-reclaim">
+                    <span className="n-dot">{r.seats.length}</span>
+                    <div className="who-text">
+                      <span className="who-name">{r.what}</span>
+                      <span className="who-sub">{r.why} · tap to see seats</span>
+                    </div>
+                    <span className="amt">{money(Math.round(r.monthly * 100) / 100)}/mo</span>
+                    <LicenseButton action="revoke" label="Revoke all" licenseIds={r.licenseIds} />
+                  </summary>
+                  <div className="reclaim-seats">
+                    {r.seats.map((s) => (
+                      <div key={s.licenseId} className="row row-seat">
+                        <div className="who-text">
+                          <span className="who-name">{s.hireName ?? "Unassigned"}</span>
+                          <span className="who-sub">{s.app} · {s.detail}</span>
+                        </div>
+                        <span className="amt">{money(Math.round(s.monthly * 100) / 100)}/mo</span>
+                        <LicenseButton action="revoke" label="Revoke" licenseIds={[s.licenseId]} />
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
           </div>
         </section>
         <section className="panel">
