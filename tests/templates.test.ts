@@ -1,7 +1,7 @@
 import { createMemoryRepository } from "@/lib/memory-repository";
 import { TemplateService } from "@/lib/templates";
 import { sequentialIdGenerator, fixedClock } from "@/lib/ids";
-import type { AppCatalogItem, Hire, Template, TemplateTask } from "@/lib/types";
+import type { Hire, Template, TemplateTask } from "@/lib/types";
 
 async function setup() {
   const repo = createMemoryRepository();
@@ -21,6 +21,16 @@ async function setup() {
 
   const hire: Hire = { id: "h1", name: "Riley", email: "r@x.test", roleName: "Software Engineer", managerId: null, startDate: "2026-02-02", cohort: null };
   await repo.hires.insert(hire);
+
+  await repo.appCatalog.insert({
+    id: "github",
+    name: "GitHub",
+    category: "dev",
+    costPerSeat: 21,
+    billing: "monthly",
+    seatsOwned: 50,
+    seatsInUseBaseline: 10,
+  });
 
   return { repo, templates };
 }
@@ -51,43 +61,71 @@ describe("TemplateService.instantiateForHire", () => {
     await expect(templates.instantiateForHire("nope", "tpl_swe")).rejects.toThrow(/Hire/);
     await expect(templates.instantiateForHire("h1", "nope")).rejects.toThrow(/Template/);
   });
+});
 
-  it("defers a seat to the queue when the app pool is full", async () => {
-    const { repo, templates } = await setup();
+describe("TemplateService read models + CRUD", () => {
+  it("lists templates with their tasks attached, sorted by role", async () => {
+    const { templates } = await setup();
+    await templates.createTemplate("Designer");
 
-    // GitHub pool: 1 seat owned, already fully consumed by the baseline.
-    const github: AppCatalogItem = {
-      id: "github", name: "GitHub", category: "dev", costPerSeat: 21,
-      billing: "monthly", seatsOwned: 1, seatsInUseBaseline: 1,
-    };
-    await repo.appCatalog.insert(github);
-
-    const result = await templates.instantiateForHire("h1", "tpl_swe", ["github"]);
-
-    // Not granted: no active license returned, instead deferred.
-    expect(result.licenses).toHaveLength(0);
-    expect(result.deferred).toEqual([{ appId: "github", appName: "GitHub" }]);
-
-    // A requested license exists (asked-for-but-not-granted) for IT's queue.
-    const stored = await repo.licenses.where((l) => l.hireId === "h1" && l.appId === "github");
-    expect(stored).toHaveLength(1);
-    expect(stored[0]!.status).toBe("requested");
-    expect(stored[0]!.grantedAt).toBeNull();
+    const all = await templates.listWithTasks();
+    expect(all.map((t) => t.roleName)).toEqual(["Designer", "Software Engineer"]);
+    const swe = all.find((t) => t.roleName === "Software Engineer")!;
+    expect(swe.tasks).toHaveLength(2);
   });
 
-  it("grants what fits and defers the overflow within one batch", async () => {
+  it("creates a template and rejects duplicate role names", async () => {
+    const { templates } = await setup();
+    const created = await templates.createTemplate("Data Analyst");
+    expect(created.roleName).toBe("Data Analyst");
+
+    await expect(templates.createTemplate("  data analyst ")).rejects.toThrow(/already exists/);
+    await expect(templates.createTemplate("   ")).rejects.toThrow(/required/);
+  });
+
+  it("adds a task and forces cost to 0 for a 'none' cost type", async () => {
+    const { templates } = await setup();
+    const task = await templates.addTask("tpl_swe", {
+      title: "Issue badge",
+      ownerTeam: "facilities",
+      cost: 25,
+      costType: "none",
+    });
+    expect(task.cost).toBe(0);
+    expect(task.appId).toBeNull();
+  });
+
+  it("validates the app id when a task grants a seat", async () => {
+    const { templates } = await setup();
+    const task = await templates.addTask("tpl_swe", {
+      title: "Grant GitHub seat",
+      ownerTeam: "it",
+      cost: 21,
+      costType: "recurring",
+      appId: "github",
+    });
+    expect(task.appId).toBe("github");
+
+    await expect(
+      templates.addTask("tpl_swe", { title: "Bad", ownerTeam: "it", appId: "nope" }),
+    ).rejects.toThrow(/Unknown app/);
+  });
+
+  it("updates and removes a template task", async () => {
     const { repo, templates } = await setup();
+    const updated = await templates.updateTask("tt2", { title: "Order MacBook", cost: 3000 });
+    expect(updated.title).toBe("Order MacBook");
+    expect(updated.cost).toBe(3000);
 
-    // 1 Figma seat owned, none used yet → first grant fits, second defers.
-    const figma: AppCatalogItem = {
-      id: "figma", name: "Figma", category: "design", costPerSeat: 15,
-      billing: "monthly", seatsOwned: 1, seatsInUseBaseline: 0,
-    };
-    await repo.appCatalog.insert(figma);
+    await templates.removeTask("tt1");
+    const left = await repo.templateTasks.where((t) => t.templateId === "tpl_swe");
+    expect(left.map((t) => t.id)).toEqual(["tt2"]);
+  });
 
-    const result = await templates.instantiateForHire("h1", "tpl_swe", ["figma", "figma"]);
-
-    expect(result.licenses).toHaveLength(1);        // first fits
-    expect(result.deferred).toEqual([{ appId: "figma", appName: "Figma" }]); // second deferred
+  it("throws adding a task to an unknown template", async () => {
+    const { templates } = await setup();
+    await expect(
+      templates.addTask("nope", { title: "x", ownerTeam: "it" }),
+    ).rejects.toThrow(/Template/);
   });
 });

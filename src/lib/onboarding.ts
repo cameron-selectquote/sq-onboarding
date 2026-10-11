@@ -19,10 +19,17 @@
 import {defaultIdGenerator, type IdGenerator} from './ids';
 import type {AssetService} from './assets';
 import type {LicenseService} from './licenses';
+import type {NotificationService} from './notifications';
 import type {Repository} from './repository';
-import type {AppCatalogItem, Task} from './types';
+import type {AppCatalogItem, Task, Team} from './types';
 
-export type ExecutionOutcome = 'granted' | 'ordered' | 'completed' | 'skipped';
+export type ExecutionOutcome =
+  | 'granted'
+  | 'ordered'
+  | 'completed'
+  | 'skipped'
+  /** Wanted to provision hardware but none is in stock — left for the team. */
+  | 'deferred';
 
 export interface TaskExecution {
   taskId: string;
@@ -37,6 +44,8 @@ export interface ExecutionReport {
   hireId: string;
   executions: TaskExecution[];
   automated: number;
+  /** Hardware tasks left unprovisioned because stock was out. */
+  deferred: number;
   skipped: number;
 }
 
@@ -48,17 +57,22 @@ export class OnboardingExecutor {
   private readonly repo: Repository;
   private readonly licenses: LicenseService;
   private readonly assets: AssetService;
+  private readonly notifications?: NotificationService;
   private readonly nextSerial: IdGenerator;
 
   constructor(
     repo: Repository,
     licenses: LicenseService,
     assets: AssetService,
-    options: {serialGenerator?: IdGenerator} = {},
+    options: {
+      serialGenerator?: IdGenerator;
+      notifications?: NotificationService;
+    } = {},
   ) {
     this.repo = repo;
     this.licenses = licenses;
     this.assets = assets;
+    this.notifications = options.notifications;
     this.nextSerial = options.serialGenerator ?? defaultIdGenerator;
   }
 
@@ -99,13 +113,56 @@ export class OnboardingExecutor {
       executions.push(await this.runTask(hireId, task, apps));
     }
 
-    const automated = executions.filter((e) => e.outcome !== 'skipped').length;
+    // "deferred" (hardware out of stock) is neither automated nor a plain
+    // skip — count it on its own so the summary can call it out.
+    const automated = executions.filter(
+      (e) => e.outcome !== 'skipped' && e.outcome !== 'deferred',
+    ).length;
+    const deferred = executions.filter((e) => e.outcome === 'deferred').length;
+
+    // Tell the owning teams what was provisioned, batched per hire so a single
+    // onboarding run shows up as one event per team inbox.
+    if (this.notifications) {
+      await this.notifyTeams(hire.name, hireId, executions);
+    }
+
     return {
       hireId,
       executions,
       automated,
-      skipped: executions.length - automated,
+      deferred,
+      skipped: executions.length - automated - deferred,
     };
+  }
+
+  /** Post one notification per owning team summarizing what was automated. */
+  private async notifyTeams(
+    hireName: string,
+    hireId: string,
+    executions: TaskExecution[],
+  ): Promise<void> {
+    if (!this.notifications) return;
+    const done = executions.filter(
+      (e) => e.outcome !== 'skipped' && e.outcome !== 'deferred',
+    );
+    if (done.length === 0) return;
+
+    const byTeam = new Map<Team, string[]>();
+    for (const e of done) {
+      const team = e.ownerTeam as Team;
+      const list = byTeam.get(team) ?? [];
+      list.push(e.detail);
+      byTeam.set(team, list);
+    }
+
+    const batchId = `onboard_${hireId}`;
+    for (const [team, details] of byTeam) {
+      await this.notifications.notify({
+        targetTeam: team,
+        message: `${hireName}: ${details.join(', ')}.`,
+        batchId,
+      });
+    }
   }
 
   private async runTask(
@@ -134,32 +191,22 @@ export class OnboardingExecutor {
 
     // Order a laptop.
     if (title.includes('laptop')) {
-      const asset = await this.assets.raisePurchaseOrder({
-        assetCatalogId: LAPTOP_CATALOG_ID,
-        hireId,
-        serialTag: this.serialTag('MBP'),
+      return this.provisionHardware(hireId, task, {
+        catalogId: LAPTOP_CATALOG_ID,
+        serialPrefix: 'MBP',
+        label: 'laptop',
+        orderedDetail: (serial) => `Ordered laptop (${serial})`,
       });
-      await this.markDone(task.id);
-      return {
-        ...base,
-        outcome: 'ordered',
-        detail: `Ordered laptop (${asset.serialTag})`,
-      };
     }
 
     // Issue an access badge.
     if (title.includes('badge')) {
-      const asset = await this.assets.raisePurchaseOrder({
-        assetCatalogId: BADGE_CATALOG_ID,
-        hireId,
-        serialTag: this.serialTag('BDG'),
+      return this.provisionHardware(hireId, task, {
+        catalogId: BADGE_CATALOG_ID,
+        serialPrefix: 'BDG',
+        label: 'access badge',
+        orderedDetail: (serial) => `Issued access badge (${serial})`,
       });
-      await this.markDone(task.id);
-      return {
-        ...base,
-        outcome: 'ordered',
-        detail: `Issued access badge (${asset.serialTag})`,
-      };
     }
 
     // Administrative, no external system — just complete it.
@@ -184,21 +231,70 @@ export class OnboardingExecutor {
     };
   }
 
+  /**
+   * Provision a piece of hardware for a hire, but only if the company has one
+   * in stock. When stock is out, we do NOT silently raise a PO — the task is
+   * left blocked and reported as `deferred` so the Genie can tell the user
+   * exactly what it couldn't provision and the owning team can source it.
+   */
+  private async provisionHardware(
+    hireId: string,
+    task: Task,
+    spec: {
+      catalogId: string;
+      serialPrefix: string;
+      label: string;
+      orderedDetail: (serial: string) => string;
+    },
+  ): Promise<TaskExecution> {
+    const base = {
+      taskId: task.id,
+      title: task.title,
+      ownerTeam: task.ownerTeam,
+    };
+
+    if (!(await this.hasStock(spec.catalogId))) {
+      // Mark it blocked so it surfaces in the team's queue instead of looking
+      // done — nothing was provisioned and no spend hit the ledger.
+      await this.repo.tasks.update(task.id, {status: 'blocked'});
+      return {
+        ...base,
+        outcome: 'deferred',
+        detail: `Out of stock — no ${spec.label} available to provision`,
+      };
+    }
+
+    const asset = await this.assets.raisePurchaseOrder({
+      assetCatalogId: spec.catalogId,
+      hireId,
+      serialTag: this.serialTag(spec.serialPrefix),
+    });
+    await this.markDone(task.id);
+    return {
+      ...base,
+      outcome: 'ordered',
+      detail: spec.orderedDetail(asset.serialTag),
+    };
+  }
+
+  /** True when at least one asset of this catalog type is on hand (in stock). */
+  private async hasStock(catalogId: string): Promise<boolean> {
+    const inStock = await this.repo.assets.where(
+      (a) => a.catalogId === catalogId && a.status === 'in_stock',
+    );
+    return inStock.length > 0;
+  }
+
   /** Ensure a license row exists for this hire+app, then grant it. */
   private async grantSeat(hireId: string, appId: string): Promise<void> {
     const existing = await this.repo.licenses.where(
       (l) => l.hireId === hireId && l.appId === appId,
     );
-    let license = existing[0];
+    const license = existing[0];
     if (!license) {
-      license = await this.repo.licenses.insert({
-        id: this.nextSerial(),
-        hireId,
-        appId,
-        status: 'requested',
-        grantedAt: null,
-        lastUsedAt: null,
-      });
+      // No row yet: assign creates the license and writes the ledger entry.
+      await this.licenses.assign(hireId, appId);
+      return;
     }
     if (license.status !== 'active') {
       await this.licenses.grant(license.id);

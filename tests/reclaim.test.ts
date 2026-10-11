@@ -32,10 +32,9 @@ describe("flagLicenses — idle", () => {
     expect(flagLicenses(licenses, apps, { idleDays: 30, asOf })).toHaveLength(0);
   });
 
-  it("ignores non-active licenses (revoked, requested)", () => {
+  it("ignores non-active licenses (revoked)", () => {
     const licenses: License[] = [
       { id: "l1", hireId: "h1", appId: "github", status: "revoked", grantedAt: null, lastUsedAt: "2020-01-01T00:00:00.000Z" },
-      { id: "l2", hireId: "h1", appId: "github", status: "requested", grantedAt: null, lastUsedAt: "2020-01-01T00:00:00.000Z" },
     ];
     expect(flagLicenses(licenses, apps, { asOf })).toHaveLength(0);
   });

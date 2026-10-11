@@ -419,6 +419,35 @@ a.seg-opt[aria-current='page'] {
   text-transform: uppercase;
   color: var(--color-neutral-700);
 }
+.row-tpl {
+  grid-template-columns: minmax(0, 2.2fr) 110px 110px minmax(0, 1fr) 90px;
+  gap: 10px;
+  align-items: center;
+}
+.row-tpl.is-head {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+}
+.tpl-task-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--color-divider);
+}
+@media (max-width: 860px) {
+  .row-tpl {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .row-tpl > :nth-child(2),
+  .row-tpl > :nth-child(3),
+  .row-tpl > :nth-child(4) {
+    display: none;
+  }
+}
 .row-reclaim {
   grid-template-columns: 44px minmax(0, 1fr) auto auto;
   gap: 14px;
@@ -1012,6 +1041,244 @@ a.seg-opt[aria-current='page'] {
   font-weight: 700;
 }
 
+/* — recovered-spend card inside a Genie bubble (offboard preview/result) — */
+.reclaim-card {
+  margin-top: 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.reclaim-card.is-done {
+  border-color: var(--color-accent-2);
+  background: var(--color-accent-2-100);
+}
+.reclaim-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.reclaim-card-title {
+  font-family: var(--font-heading);
+  font-size: 15px;
+}
+.reclaim-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.reclaim-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+}
+.reclaim-card-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.reclaim-card-amt {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-800);
+}
+.reclaim-card-totals {
+  display: flex;
+  gap: 10px;
+  border-top: 1px solid var(--color-divider);
+  padding-top: 12px;
+}
+.reclaim-card-total {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-100);
+}
+.reclaim-card.is-done .reclaim-card-total {
+  background: color-mix(in srgb, var(--color-accent-2) 14%, transparent);
+}
+.reclaim-card-total-value {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.reclaim-card-total-label {
+  font-size: 12px;
+  color: var(--color-neutral-700);
+}
+
+/* — read-only status card inside a Genie bubble ("pull up a person") — */
+.status-card {
+  margin-top: 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.status-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.status-card-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+}
+.status-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  margin-top: -4px;
+}
+.status-card-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.status-card-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-neutral-200);
+  overflow: hidden;
+}
+.status-card-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-accent-2);
+}
+.status-card-progress-label {
+  font-size: 12px;
+  color: var(--color-neutral-700);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.status-card-next {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-100);
+  font-size: 13px;
+}
+.status-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.status-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+}
+.status-card-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.status-card-amt {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-800);
+}
+.status-card-foot {
+  padding-top: 10px;
+  border-top: 1px solid var(--color-divider);
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+
+/* — candidate pipeline table inside a Genie bubble ("show me the candidates") — */
+.cand-card {
+  margin-top: 10px;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.cand-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.cand-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-neutral-100);
+}
+.cand-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-divider);
+  vertical-align: middle;
+}
+.cand-table tr:last-child td {
+  border-bottom: 0;
+}
+
+/* — templates list inside a Genie bubble ("show me the templates") — */
+.tpl-card {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tpl-item {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tpl-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.tpl-item-title {
+  font-family: var(--font-heading);
+  font-size: 15px;
+}
+.tpl-task-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+.tpl-task-detail {
+  color: var(--color-neutral-700);
+}
+
 /* — rendered markdown inside a Genie bubble — */
 .md {
   display: flex;
@@ -1143,4 +1410,105 @@ a.seg-opt[aria-current='page'] {
   .row-candidate > :nth-child(3) {
     display: none;
   }
+}
+
+/* — global Genie launcher button (top-left) + chat overlay — */
+.genie-launch {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-surface);
+  color: var(--color-accent-900);
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 10%);
+  transition:
+    background 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.12s ease;
+}
+.genie-launch:hover {
+  background: var(--color-accent-100);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+}
+.genie-launch:active {
+  transform: translateY(1px);
+}
+.genie-launch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-accent);
+}
+
+.genie-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+}
+.genie-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 32%);
+}
+.genie-overlay-panel {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 94vw);
+  height: 100%;
+  background: var(--color-bg, var(--color-surface));
+  border-left: 1px solid var(--color-divider);
+  box-shadow: -4px 0 28px rgb(0 0 0 / 18%);
+  padding: 20px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  animation: genie-slide-in 0.16s ease;
+}
+@keyframes genie-slide-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+/* In the overlay the chat panel fills the available height and scrolls inside. */
+.genie-overlay-panel .genie {
+  flex: 1;
+  min-height: 0;
+  max-width: none;
+}
+/* A dedicated close row above the chat, so the × never overlaps the chat's own
+   header controls (engine tag + help button). */
+.genie-overlay-bar {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+.genie-overlay-close {
+  border: 0;
+  background: transparent;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-neutral-700);
+  padding: 0 4px;
+}
+.genie-overlay-close:hover {
+  color: var(--color-neutral-900);
 }

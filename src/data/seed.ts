@@ -29,12 +29,12 @@ import type {
 } from '@/lib/types';
 
 /**
- * Cohort convention for a hire that's offboarding. The reclaim route treats
- * hires with this cohort as "assets should come back" (see the reclaim-
- * visibility spec). A stand-in for a real offboarding column — swap later
- * without touching the type contract.
+ * Cohort convention for a hire that's offboarding. Canonical definition now
+ * lives in `@/lib/cohorts` so domain services can use it without importing
+ * seed data; re-exported here so existing `@/data/seed` imports keep working.
  */
-export const OFFBOARDING_COHORT = 'offboarding';
+import {OFFBOARDING_COHORT} from '@/lib/cohorts';
+export {OFFBOARDING_COHORT};
 
 export interface SeedData {
   companies: Company[];
@@ -531,8 +531,7 @@ export const seedData: SeedData = {
   tasks: [], // filled from templates below
 
   // Live burn plus something to reclaim: an idle seat, a seat marked for
-  // reclaim, a stale active seat, and a duplicate comms app. `requested` seats
-  // are asked-for-but-not-granted — IT grants them from the "Seats waiting" queue.
+  // reclaim, a stale active seat, and a duplicate comms app.
   licenses: [
     {
       id: 'lic_1',
@@ -597,30 +596,6 @@ export const seedData: SeedData = {
       status: 'active',
       grantedAt: daysAgo(70),
       lastUsedAt: daysAgo(40),
-    },
-    {
-      id: 'lic_9',
-      hireId: 'hire_4',
-      appId: 'gsuite',
-      status: 'requested',
-      grantedAt: null,
-      lastUsedAt: null,
-    },
-    {
-      id: 'lic_10',
-      hireId: 'hire_5',
-      appId: 'github',
-      status: 'requested',
-      grantedAt: null,
-      lastUsedAt: null,
-    },
-    {
-      id: 'lic_11',
-      hireId: 'hire_5',
-      appId: 'slack',
-      status: 'requested',
-      grantedAt: null,
-      lastUsedAt: null,
     },
     // Extra idle/flagged seats so the reclaimable total is large enough to pull
     // a projected quarter-end overage back under budget (the BvA reclaim beat).

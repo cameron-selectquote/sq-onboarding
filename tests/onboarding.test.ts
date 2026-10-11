@@ -3,6 +3,7 @@ import {LedgerService} from '@/lib/ledger';
 import {LicenseService} from '@/lib/licenses';
 import {AssetService} from '@/lib/assets';
 import {OnboardingExecutor} from '@/lib/onboarding';
+import {NotificationService} from '@/lib/notifications';
 import {sequentialIdGenerator, fixedClock} from '@/lib/ids';
 import type {Repository} from '@/lib/repository';
 
@@ -40,6 +41,26 @@ async function seedHireWithSweTasks(): Promise<Repository> {
     category: 'facilities',
     standardCost: 25,
     depreciationMonths: 12,
+  });
+  // On-hand stock so the executor can provision the laptop + badge. Without
+  // stock the executor defers (see the out-of-stock test below).
+  await repo.assets.insert({
+    id: 'stock_mbp',
+    catalogId: 'mbp16',
+    serialTag: 'MBP-STOCK',
+    status: 'in_stock',
+    assignedToHireId: null,
+    acquiredAt: '2026-01-01',
+    returnedAt: null,
+  });
+  await repo.assets.insert({
+    id: 'stock_badge',
+    catalogId: 'badge',
+    serialTag: 'BDG-STOCK',
+    status: 'in_stock',
+    assignedToHireId: null,
+    acquiredAt: '2026-01-01',
+    returnedAt: null,
   });
   await repo.budgets.insert({
     id: 'bud_it',
@@ -112,7 +133,12 @@ async function seedHireWithSweTasks(): Promise<Repository> {
     },
   ];
   for (const t of tasks)
-    await repo.tasks.insert({hireId: 'hire_x', status: 'todo', appId: null, ...t});
+    await repo.tasks.insert({
+      hireId: 'hire_x',
+      status: 'todo',
+      appId: null,
+      ...t,
+    });
   return repo;
 }
 
@@ -212,5 +238,76 @@ describe('OnboardingExecutor.executeForHire', () => {
     const tasks = await repo.tasks.where((t) => t.hireId === 'hire_x');
     const slackTask = tasks.find((t) => /slack/i.test(t.title));
     expect(slackTask?.status).toBe('todo');
+  });
+
+  it('notifies each owning team once per run when a notifier is injected', async () => {
+    const repo = await seedHireWithSweTasks();
+    const notifications = new NotificationService(repo, {
+      idGenerator: sequentialIdGenerator('ntf'),
+    });
+    const ledger = new LedgerService(repo, {
+      idGenerator: sequentialIdGenerator('led'),
+      clock: fixedClock('2026-03-01T00:00:00.000Z'),
+    });
+    const licenses = new LicenseService(repo, ledger);
+    const assets = new AssetService(repo, ledger, {
+      idGenerator: sequentialIdGenerator('asset'),
+      clock: fixedClock('2026-03-01T00:00:00.000Z'),
+    });
+    const exec = new OnboardingExecutor(repo, licenses, assets, {
+      serialGenerator: sequentialIdGenerator('sn'),
+      notifications,
+    });
+
+    await exec.executeForHire('hire_x');
+
+    // IT (email/SSO + 2 grants), vendor (laptop), facilities (badge) each get
+    // one batched message; HR's task was human-only (skipped) so no inbox item.
+    expect(await notifications.unreadCount('it')).toBe(1);
+    expect(await notifications.unreadCount('vendor')).toBe(1);
+    expect(await notifications.unreadCount('facilities')).toBe(1);
+    expect(await notifications.unreadCount('hr')).toBe(0);
+
+    const it = await notifications.forTeam('it');
+    expect(it[0]?.message).toMatch(/Nora Alvarez/);
+    expect(it[0]?.batchId).toBe('onboard_hire_x');
+  });
+
+  it('defers hardware when stock is out: no PO, task blocked, reported deferred', async () => {
+    const repo = await seedHireWithSweTasks();
+    // Remove the on-hand laptop + badge so the executor has nothing to assign.
+    await repo.assets.remove('stock_mbp');
+    await repo.assets.remove('stock_badge');
+
+    const report = await executor(repo).executeForHire('hire_x');
+
+    const byTitle = Object.fromEntries(
+      report.executions.map((e) => [e.title, e.outcome]),
+    );
+    // Seats + email still automate; hardware defers.
+    expect(byTitle['Grant GitHub seat']).toBe('granted');
+    expect(byTitle['Create email + SSO']).toBe('completed');
+    expect(byTitle['Order laptop']).toBe('deferred');
+    expect(byTitle['Issue access badge']).toBe('deferred');
+
+    expect(report.deferred).toBe(2);
+    expect(report.automated).toBe(3); // 2 grants + email/SSO
+
+    // The deferred hardware tasks are left blocked (surface in the team queue),
+    // not marked done.
+    const tasks = await repo.tasks.where((t) => t.hireId === 'hire_x');
+    const status = Object.fromEntries(tasks.map((t) => [t.title, t.status]));
+    expect(status['Order laptop']).toBe('blocked');
+    expect(status['Issue access badge']).toBe('blocked');
+
+    // No PO hit the ledger for the out-of-stock hardware — only the 2 grants.
+    const entries = await repo.ledgerEntries.list();
+    expect(entries.every((e) => e.type !== 'asset_purchase')).toBe(true);
+
+    // Nothing was assigned to the hire.
+    const assigned = await repo.assets.where(
+      (a) => a.assignedToHireId === 'hire_x',
+    );
+    expect(assigned).toHaveLength(0);
   });
 });
