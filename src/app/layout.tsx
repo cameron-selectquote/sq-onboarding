@@ -4,7 +4,7 @@ import './app.css';
 import {GenieLauncher} from './_components/genie';
 
 export const metadata = {
-  title: 'Provision',
+  title: 'sprout',
   description: 'Onboarding + spend ledger — Hack Midwest 2026',
 };
 

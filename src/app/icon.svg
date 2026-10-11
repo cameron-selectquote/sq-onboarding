@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="sprout">
+  <!-- Rounded-square app tile, Sprout Green -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="#4CAF50"/>
+  <!-- Seedling: a sprout rising from the earth -->
+  <g>
+    <!-- stem -->
+    <path d="M256 388 V236" fill="none" stroke="#2C3E2B" stroke-width="20" stroke-linecap="round"/>
+    <!-- earth line -->
+    <path d="M176 388 Q256 356 336 388" fill="none" stroke="#2C3E2B" stroke-width="22" stroke-linecap="round"/>
+    <!-- right leaf (sapling) -->
+    <path d="M256 250
+             C300 196 356 190 384 180
+             C382 232 350 282 288 288
+             C274 290 262 272 256 250 Z"
+          fill="#C2E6A1" stroke="#2C3E2B" stroke-width="12" stroke-linejoin="round"/>
+    <!-- left leaf (soft off-white highlight) -->
+    <path d="M252 258
+             C214 214 168 210 142 202
+             C146 246 174 288 226 294
+             C240 296 248 280 252 258 Z"
+          fill="#F7F9F6" stroke="#2C3E2B" stroke-width="12" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -151,7 +151,7 @@ export function allowsPreHandler(
  * Kept here so all three role prompts live in one place; `genie.ts` re-exports
  * it as `GENIE_SYSTEM_PROMPT` for backwards compatibility.
  */
-export const ADMIN_SYSTEM_PROMPT = `You are Genie, an intelligent assistant inside the workspace. Your goal is to help the team get things done — guiding them through setting up new hires and running the workflows that follow.
+export const ADMIN_SYSTEM_PROMPT = `You are Sage, an intelligent assistant inside the workspace. Your goal is to help the team get things done — guiding them through setting up new hires and running the workflows that follow.
 
 PERSONALITY & BEHAVIOR
 - Proactive, concise, and professional with a welcoming tone.
@@ -182,7 +182,7 @@ Always use the tools for candidate data, publishing, executing, and offboarding.
  * Manager prompt — a read-only reporting assistant scoped to the manager's own
  * hires and open roles. No mutations, no costs, no cross-manager data.
  */
-export const MANAGER_SYSTEM_PROMPT = `You are Genie, a reporting assistant for a hiring manager. You help the manager keep track of THEIR OWN hires and the candidates for THEIR open roles.
+export const MANAGER_SYSTEM_PROMPT = `You are Sage, a reporting assistant for a hiring manager. You help the manager keep track of THEIR OWN hires and the candidates for THEIR open roles.
 
 PERSONALITY & BEHAVIOR
 - Concise, professional, and helpful.
@@ -204,7 +204,7 @@ Keep replies short. If a lookup finds nobody in your scope, say so plainly rathe
  * Employee prompt — a slimmed-down company concierge for a new hire. Company
  * and self info only, strictly no costs and no other people.
  */
-export const EMPLOYEE_SYSTEM_PROMPT = `You are Genie, a friendly onboarding concierge for a new hire. You help this ONE new hire feel welcome and get oriented.
+export const EMPLOYEE_SYSTEM_PROMPT = `You are Sage, a friendly onboarding concierge for a new hire. You help this ONE new hire feel welcome and get oriented.
 
 PERSONALITY & BEHAVIOR
 - Warm, encouraging, and concise. You're the new person's helpful guide.
@@ -237,7 +237,7 @@ export function promptFor(role: GenieRole): string {
 
 /** The admin opening greeting — the original Genie greeting. */
 export const ADMIN_GREETING = [
-  `Hi, I'm Genie. I can help you get things done — just tell me what you need. A few things to try:`,
+  `Hi, I'm Sage. I can help you get things done — just tell me what you need. A few things to try:`,
   ``,
   `- **Show candidates** — "show me the candidates" lists who's ready to onboard`,
   `- **Set someone up** — "Onboard Nora Alvarez" or just a name`,
@@ -250,7 +250,7 @@ export const ADMIN_GREETING = [
 ].join('\n');
 
 const MANAGER_GREETING = [
-  `Hi! I'm Genie, here to help you keep tabs on your team. A few things to try:`,
+  `Hi! I'm Sage, here to help you keep tabs on your team. A few things to try:`,
   ``,
   `- **See your hires** — "show my hires" or "how's my team doing"`,
   `- **Check someone** — "how's Riley doing" or "what assets does Jordan have"`,
@@ -260,7 +260,7 @@ const MANAGER_GREETING = [
 ].join('\n');
 
 const EMPLOYEE_GREETING = [
-  `Welcome aboard! I'm Genie, your onboarding concierge. I'm here to help you settle in. You can ask me:`,
+  `Welcome aboard! I'm Sage, your onboarding concierge. I'm here to help you settle in. You can ask me:`,
   ``,
   `- **About the company** — "tell me about where I work"`,
   `- **About your role** — "what's my role" or "what should I expect"`,

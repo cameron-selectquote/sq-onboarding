@@ -19,7 +19,7 @@ export default async function Login({
     <main className="login-page">
       <form method="post" action="/api/session" className="card login-card">
         <div className="head-text">
-          <span className="eyebrow">Provision · SelectQuote</span>
+          <span className="eyebrow">sprout · SelectQuote</span>
           <h1 className="title">Sign in</h1>
         </div>
         {next && <input type="hidden" name="next" value={next} />}
