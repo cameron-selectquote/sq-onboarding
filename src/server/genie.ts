@@ -325,25 +325,13 @@ async function buildTools(role: GenieRole, scope: GenieScopeInput) {
   const executeOffboarding = tool({
     name: 'executeOffboarding',
     description:
-      "DESTRUCTIVE. Revoke the hire's software seats and return their hardware (recovers spend; writes crediting ledger entries). NEVER call this until you have (1) called previewOffboarding, (2) shown the user exactly what will be reclaimed, and (3) received an explicit yes/confirm to proceed. You MUST pass confirmed=true, which you may only set after the user confirms. If you are not certain the user confirmed, call previewOffboarding instead and ask.",
+      "DESTRUCTIVE. Revoke the hire's software seats and return their hardware (recovers spend; writes crediting ledger entries). The human-in-the-loop confirmation is handled OUTSIDE the agent (the chat gate previews the reclaim and gets an explicit yes/no before you are ever invoked), so by the time you call this the action is already approved. Call previewOffboarding first for the breakdown, then this with the hireId.",
     inputSchema: z.object({
       hireId: z
         .string()
         .describe('The hire id to offboard (from previewOffboarding)'),
-      confirmed: z
-        .boolean()
-        .describe(
-          'Must be true, and only after the user explicitly confirmed the destructive action',
-        ),
     }),
-    callback: async ({hireId, confirmed}) => {
-      if (!confirmed) {
-        return {
-          refused: true,
-          message:
-            'Not confirmed. Show the previewOffboarding result and ask the user to confirm before executing.',
-        };
-      }
+    callback: async ({hireId}) => {
       const r = await offboarding.execute(hireId);
       return {
         hireId: r.hireId,
@@ -763,10 +751,14 @@ export interface GenieReply {
    * The client holds it and sends it back next turn so adjustments persist.
    */
   plan?: PendingPlan | null;
-  /** A previewed-but-unconfirmed offboard, carried across turns. */
-  offboard?: PendingOffboard | null;
   /** An in-progress new-template build, carried across turns. */
   templateDraft?: TemplateDraft | null;
+  /**
+   * A previewed destructive action (offboard or seat revoke) awaiting the
+   * user's yes/no. Round-tripped so the next turn's reply confirms or cancels
+   * it. Null unless a removal is currently awaiting confirmation.
+   */
+  confirm?: PendingConfirmation | null;
   /**
    * An optional structured card to render alongside the message (recovered
    * spend on offboard). Not round-tripped — it's render-only for this turn.
@@ -780,11 +772,31 @@ export interface GenieHistoryTurn {
   text: string;
 }
 
-/** A destructive offboard awaiting the user's explicit confirmation. */
-export interface PendingOffboard {
-  hireId: string;
-  hireName: string;
-}
+/**
+ * One previewed destructive action awaiting the user's explicit yes/no. Every
+ * removal (offboard a hire, revoke a single seat) is gated through this single
+ * confirmation shape so there's one human-in-the-loop path on both engines.
+ * Discriminated by `action`; `label` is the human description shown in the
+ * re-ask prompt. The ids are what the executor needs.
+ */
+export type PendingConfirmation =
+  | {
+      action: 'offboard';
+      hireId: string;
+      hireName: string;
+      /** e.g. "offboard Quinn Baker (revoke seats + return hardware)". */
+      label: string;
+    }
+  | {
+      action: 'revokeSeat';
+      licenseId: string;
+      hireName: string;
+      appName: string;
+      /** Recurring $/mo the revoke credits back. */
+      monthly: number;
+      /** e.g. "revoke Riley Chen's GitHub seat". */
+      label: string;
+    };
 
 export interface GenieTurnInput {
   message: string;
@@ -806,10 +818,14 @@ export interface GenieTurnInput {
   confirmedCandidateId?: string | null;
   /** The pending plan from the previous turn, if any. */
   plan?: PendingPlan | null;
-  /** A previewed offboard waiting on a yes/no, carried across turns. */
-  offboard?: PendingOffboard | null;
   /** An in-progress template build from the previous turn, if any. */
   templateDraft?: TemplateDraft | null;
+  /**
+   * A previewed destructive action from the previous turn awaiting a yes/no.
+   * When present, this turn's message is the human's confirmation. The client
+   * round-trips it.
+   */
+  confirm?: PendingConfirmation | null;
 }
 
 /** Resolve the effective role for a turn, defaulting to admin (full access). */
@@ -835,10 +851,27 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
   const scope = scopeOf(input);
   const may = (handler: GeniePreHandler) => allowsPreHandler(role, handler);
 
+  // CONFIRM-FIRST: every destructive action (offboard, revoke a seat) is gated
+  // through ONE deterministic human-in-the-loop flow — resolveConfirmation —
+  // that works identically on both engines. It runs before everything else so:
+  //  - a pending yes/no from last turn lands on the confirmation (not a new
+  //    request), and
+  //  - a fresh "offboard X" / "revoke X's seat" previews + asks, and never acts
+  //    on the first turn.
+  // The removal only runs on an explicit affirmative, in trusted code — never
+  // left to the model, so this is deterministic even when Bedrock is live.
+  if (may('offboard') || may('removeSeat')) {
+    const confirmed = await resolveConfirmation(input, {
+      allowOffboard: may('offboard'),
+      allowRevokeSeat: may('removeSeat'),
+    });
+    if (confirmed) return confirmed;
+  }
+
   // The deterministic pre-handlers below run trusted, mutating/cost-bearing
-  // flows (template builder, offboard gate, candidate list, seat removal,
-  // status lookup). Each is gated by the role's policy so a manager or employee
-  // can never reach a path outside their scope — on EITHER engine.
+  // flows (template builder, candidate list, status lookup). Each is gated by
+  // the role's policy so a manager or employee can never reach a path outside
+  // their scope — on EITHER engine.
 
   // Building a new template is a multi-step, one-question-at-a-time flow run
   // deterministically on BOTH engines. If a draft is already in play, this
@@ -856,28 +889,13 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
     if (templates) return templates;
   }
 
-  // Destructive offboarding is gated deterministically server-side, on BOTH
-  // engines, so the confirmation never depends on the model threading a hire
-  // id correctly. If an offboard was previewed last turn, this turn's yes/no
-  // decides it here.
-  if (may('offboard')) {
-    const gated = await resolveOffboardConfirmation(input);
-    if (gated) return gated;
-  }
-
-  // No plan/offboard in play: handle the read-only lookups + direct actions
+  // No plan/confirmation in play: handle the read-only lookups + direct actions
   // deterministically so they don't get mistaken for an onboarding search.
-  if (!input.plan && !input.offboard) {
+  if (!input.plan && !input.confirm) {
     // "show me the candidates" -> a table card of who's available to onboard.
     if (may('listCandidates')) {
       const listed = await resolveListCandidates(input);
       if (listed) return listed;
-    }
-
-    // "revoke Nora's Figma seat" -> real revoke (reclaim from the chat).
-    if (may('removeSeat')) {
-      const removed = await resolveRemoveSeat(input);
-      if (removed) return removed;
     }
 
     // "pull up Nora" -> read-only status card (admin only; managers use their
@@ -896,11 +914,9 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
       return {
         message: extractText(result.lastMessage),
         engine: 'strands-bedrock',
-        // The live agent manages flow through its tools + conversation; just
-        // echo the plan/offboard state back so the client keeps it.
         plan: input.plan ?? null,
-        offboard: input.offboard ?? null,
         templateDraft: input.templateDraft ?? null,
+        confirm: null,
       };
     } catch (err) {
       // Fall through to scripted so a model/credential hiccup never dead-ends
@@ -910,8 +926,8 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
         message: `${r.message}\n\n_(Live model unavailable: ${(err as Error).message}. Falling back to the built-in planner.)_`,
         engine: 'scripted',
         plan: r.plan,
-        offboard: r.offboard ?? null,
         templateDraft: input.templateDraft ?? null,
+        confirm: null,
       };
     }
   }
@@ -920,57 +936,114 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
     message: r.message,
     engine: 'scripted',
     plan: r.plan,
-    offboard: r.offboard ?? null,
     templateDraft: input.templateDraft ?? null,
+    confirm: null,
   };
 }
 
 /**
- * Deterministic offboarding gate, run before either engine so the destructive
- * action is always controlled by trusted code (never left to the model):
- *   - pending offboard + "yes"  -> execute (revoke seats, return assets)
- *   - pending offboard + "no"   -> cancel
- *   - pending offboard + other  -> re-ask
- *   - "offboard <name>"         -> read-only preview + set pending (await yes/no)
- * Returns null when the turn isn't about offboarding, so normal handling runs.
+ * The single deterministic human-in-the-loop confirmation gate for every
+ * destructive action (offboard a hire, revoke a seat). Works identically on
+ * both engines — the confirmation never depends on a model.
+ *
+ *   - a pending confirmation + "yes"   -> execute the action
+ *   - a pending confirmation + "no"    -> cancel
+ *   - a pending confirmation + unclear -> re-ask
+ *   - "offboard <name>"                -> preview + set pending (await yes/no)
+ *   - "revoke <name>'s <app> seat"     -> preview + set pending (await yes/no)
+ *
+ * Returns null when the turn is neither a pending confirmation nor a new
+ * destructive request, so normal handling runs. `caps` gates which new
+ * destructive intents this role may start.
  */
-async function resolveOffboardConfirmation(
+async function resolveConfirmation(
+  input: GenieTurnInput,
+  caps: {allowOffboard: boolean; allowRevokeSeat: boolean},
+): Promise<GenieReply | null> {
+  // 1) A confirmation is pending from last turn — this reply decides it.
+  if (input.confirm) {
+    return decidePendingConfirmation(input, input.confirm);
+  }
+
+  // 2) A fresh destructive request — preview it and ask (never act this turn).
+  if (caps.allowOffboard) {
+    const offboardPreview = await previewOffboardConfirmation(input);
+    if (offboardPreview) return offboardPreview;
+  }
+  if (caps.allowRevokeSeat) {
+    const revokePreview = await previewRevokeConfirmation(input);
+    if (revokePreview) return revokePreview;
+  }
+
+  return null;
+}
+
+/** Apply a yes/no to a pending confirmation, executing only on an explicit yes. */
+async function decidePendingConfirmation(
+  input: GenieTurnInput,
+  pending: PendingConfirmation,
+): Promise<GenieReply> {
+  const engine: GenieReply['engine'] =
+    hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
+  const base = {engine, plan: input.plan ?? null} as const;
+  const decision = classifyConfirmation(input.message);
+
+  if (decision === 'negative') {
+    return {
+      ...base,
+      confirm: null,
+      message: `Okay — I won't ${pending.label}. Nothing changed.`,
+    };
+  }
+  if (decision === 'unclear') {
+    return {
+      ...base,
+      confirm: pending,
+      message: `Just to confirm — reply **yes** to ${pending.label}, or **no** to cancel.`,
+    };
+  }
+
+  // Affirmative — execute the specific action.
+  const {offboarding, licenses: licenseService, repo} = await getServices();
+  if (pending.action === 'offboard') {
+    const r = await offboarding.execute(pending.hireId);
+    return {
+      ...base,
+      confirm: null,
+      message: renderOffboardResult(r),
+      card: reclaimCardFromResult(r),
+    };
+  }
+  // revokeSeat — re-check the seat is still live before acting on a stale yes.
+  const license = await repo.licenses.get(pending.licenseId);
+  if (!license || license.status === 'revoked') {
+    return {
+      ...base,
+      confirm: null,
+      message: `${pending.hireName}'s ${pending.appName} seat is no longer active — nothing to revoke.`,
+    };
+  }
+  await licenseService.revoke(pending.licenseId);
+  return {
+    ...base,
+    confirm: null,
+    message: `Revoked ${pending.hireName}'s **${pending.appName}** seat. That credits ${money0(pending.monthly)}/mo back — it'll show on the finance reclaim view.`,
+  };
+}
+
+/**
+ * Preview a fresh "offboard <name>" request: resolve the hire, show what will
+ * be reclaimed, and set a pending confirmation. Never offboards this turn.
+ * Returns null when the message isn't an offboard request.
+ */
+async function previewOffboardConfirmation(
   input: GenieTurnInput,
 ): Promise<GenieReply | null> {
   const {offboarding, repo} = await getServices();
   const text = input.message.trim();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const pending = input.offboard ?? null;
-
-  if (pending) {
-    const decision = classifyConfirmation(text);
-    if (decision === 'negative') {
-      return {
-        message: `Okay — I won't offboard ${pending.hireName}. Nothing changed.`,
-        engine,
-        offboard: null,
-        plan: input.plan ?? null,
-      };
-    }
-    if (decision === 'affirmative') {
-      const r = await offboarding.execute(pending.hireId);
-      return {
-        message: renderOffboardResult(r),
-        engine,
-        offboard: null,
-        plan: input.plan ?? null,
-        card: reclaimCardFromResult(r),
-      };
-    }
-    // Unclear — re-ask rather than guess on a destructive action.
-    return {
-      message: `Just to confirm — reply **yes** to offboard ${pending.hireName} (revoke seats + return hardware), or **no** to cancel.`,
-      engine,
-      offboard: pending,
-      plan: input.plan ?? null,
-    };
-  }
+  const base = {engine, plan: input.plan ?? null, confirm: null} as const;
 
   const name = parseOffboardIntent(text);
   if (!name) return null;
@@ -978,15 +1051,14 @@ async function resolveOffboardConfirmation(
   const lookup = await resolveHire(repo, name);
   if (lookup.kind === 'none') {
     return {
+      ...base,
       message: `I couldn't find a current hire named "${name}". Who should I offboard?`,
-      engine,
-      offboard: null,
-      plan: input.plan ?? null,
     };
   }
   if (lookup.kind === 'many') {
     const list = lookup.matches.map((m) => `- ${m.name}`).join('\n');
     return {
+      ...base,
       message: [
         `More than one current hire matches "${name}":`,
         ``,
@@ -994,26 +1066,26 @@ async function resolveOffboardConfirmation(
         ``,
         `Which one should I offboard? Reply with the full name.`,
       ].join('\n'),
-      engine,
-      offboard: null,
-      plan: input.plan ?? null,
     };
   }
   const preview = await offboarding.preview(lookup.id);
   if (preview.nothingToReclaim) {
     return {
+      ...base,
       message: `${preview.hireName} has no active seats or assigned hardware to reclaim — nothing to offboard.`,
-      engine,
-      offboard: null,
-      plan: input.plan ?? null,
     };
   }
   return {
-    message: renderOffboardPreview(preview),
     engine,
-    offboard: {hireId: preview.hireId, hireName: preview.hireName},
     plan: input.plan ?? null,
+    message: renderOffboardPreview(preview),
     card: reclaimCardFromPreview(preview),
+    confirm: {
+      action: 'offboard',
+      hireId: preview.hireId,
+      hireName: preview.hireName,
+      label: `offboard ${preview.hireName} (revoke seats + return hardware)`,
+    },
   };
 }
 
@@ -1032,7 +1104,7 @@ async function resolveViewRequest(
   const {repo} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: null, confirm: null} as const;
 
   // Published hires first — those are the people with a live onboarding status.
   const lookup = await resolveHire(repo, name);
@@ -1094,7 +1166,7 @@ async function resolveListTemplates(
   const {repo} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: null, confirm: null} as const;
 
   const [templates, templateTasks, apps] = await Promise.all([
     repo.templates.list(),
@@ -1158,7 +1230,7 @@ async function resolveTemplateBuilder(
   const text = input.message.trim();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: null, confirm: null} as const;
 
   // No draft yet: only start one if the user explicitly asked to.
   if (!draft) {
@@ -1371,7 +1443,7 @@ async function resolveListCandidates(
   const {repo} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: null, confirm: null} as const;
 
   const [candidates, users] = await Promise.all([
     repo.candidates.list(),
@@ -1420,21 +1492,22 @@ async function resolveListCandidates(
 }
 
 /**
- * Deterministic "revoke this person's seat" handler — the reclaim-from-chat
- * action. Resolves the hire + the app, finds their matching license, and
- * revokes it for real via LicenseService (credits the ledger). Returns null
- * when the message isn't a seat-removal request.
+ * Preview a fresh "revoke <name>'s <app> seat" request: resolve the hire + app,
+ * find the live license, show the $/mo credit, and set a pending confirmation.
+ * Never revokes this turn — the actual revoke runs in decidePendingConfirmation
+ * only after an explicit human yes. Returns null when the message isn't a
+ * seat-removal request.
  */
-async function resolveRemoveSeat(
+async function previewRevokeConfirmation(
   input: GenieTurnInput,
 ): Promise<GenieReply | null> {
-  const intent = parseRemoveSeatIntent(input.message);
-  if (!intent) return null;
-
-  const {repo, licenses: licenseService} = await getServices();
+  const {repo} = await getServices();
   const engine: GenieReply['engine'] =
     hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
-  const base = {engine, plan: null, offboard: null} as const;
+  const base = {engine, plan: input.plan ?? null, confirm: null} as const;
+
+  const intent = parseRemoveSeatIntent(input.message);
+  if (!intent) return null;
 
   const apps = await repo.appCatalog.list();
   const appId = resolveSeatRef(intent.appRef, apps);
@@ -1480,12 +1553,24 @@ async function resolveRemoveSeat(
     };
   }
 
+  // PREVIEW STEP: do NOT revoke yet. Show what will happen and set a pending
+  // confirmation; the revoke runs next turn only on an affirmative.
   const monthly = monthlyCost(app.costPerSeat, app.billing);
-  await licenseService.revoke(license.id);
   return {
-    ...base,
+    engine,
+    plan: input.plan ?? null,
+    confirm: {
+      action: 'revokeSeat',
+      licenseId: license.id,
+      hireName: lookup.name,
+      appName: app.name,
+      monthly,
+      label: `revoke ${lookup.name}'s ${app.name} seat (${money0(monthly)}/mo)`,
+    },
     message: [
-      `Revoked ${lookup.name}'s **${app.name}** seat. That credits ${money0(monthly)}/mo back — it'll show on the finance reclaim view.`,
+      `Revoking ${lookup.name}'s **${app.name}** seat credits ${money0(monthly)}/mo back.`,
+      ``,
+      `Heads up: this frees the seat. Reply **yes** to revoke it, or **no** to keep it.`,
     ].join('\n'),
   };
 }
@@ -1618,7 +1703,6 @@ function renderChecklist(
 interface ScriptedResult {
   message: string;
   plan: PendingPlan | null;
-  offboard?: PendingOffboard | null;
 }
 
 /**
@@ -1633,7 +1717,7 @@ async function scriptedEmployee(
   const lower = input.message.trim().toLowerCase();
   const scope = scopeOf(input);
   const hireId = scope.hireId;
-  const base = {plan: null, offboard: null} as const;
+  const base = {plan: null} as const;
 
   // Manager / "who do I report to".
   if (/\b(manager|report to|boss|lead|who do i|who's my)\b/.test(lower)) {
@@ -1742,7 +1826,7 @@ async function scriptedManager(input: GenieTurnInput): Promise<ScriptedResult> {
   const lower = text.toLowerCase();
   const scope = scopeOf(input);
   const managerUserId = scope.managerUserId;
-  const base = {plan: null, offboard: null} as const;
+  const base = {plan: null} as const;
 
   if (!managerUserId) {
     return {

@@ -1032,6 +1032,25 @@ details.side-section[open] > summary .side-section-chevron {
   border-color: var(--color-accent);
   color: var(--color-accent-900);
 }
+
+/* "Send email" action under a welcome brief — pinned to the bottom-right. */
+.brief-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.brief-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.brief-send.is-sent {
+  background: var(--color-accent-2, var(--color-accent-100));
+  border-color: var(--color-accent-2, var(--color-accent));
+  color: var(--color-accent-900);
+  cursor: default;
+  opacity: 1;
+}
 .genie-help-backdrop {
   position: fixed;
   inset: 0;
@@ -1471,22 +1490,22 @@ details.side-section[open] > summary .side-section-chevron {
 /* — global Genie launcher button (top-left) + chat overlay — */
 .genie-launch {
   position: fixed;
-  top: 14px;
-  right: 16px;
+  top: 16px;
+  right: 20px;
   z-index: 60;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 10px;
+  padding: 12px 22px;
   border-radius: 999px;
   border: 1px solid var(--color-accent);
   background: var(--color-surface);
   color: var(--color-accent-900);
   font-family: var(--font-heading);
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 10%);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 12%);
   transition:
     background 0.12s ease,
     box-shadow 0.12s ease,
@@ -1494,7 +1513,7 @@ details.side-section[open] > summary .side-section-chevron {
 }
 .genie-launch:hover {
   background: var(--color-accent-100);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 16%);
 }
 .genie-launch:active {
   transform: translateY(1px);

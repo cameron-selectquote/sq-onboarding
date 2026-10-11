@@ -30,8 +30,9 @@ export interface GenieState {
   turns: StoredTurn[];
   confirmedCandidateId: string | null;
   plan: unknown;
-  offboard: unknown;
   templateDraft: unknown;
+  /** A previewed destructive action awaiting the user's yes/no confirmation. */
+  confirm: unknown;
   engine: 'strands-bedrock' | 'scripted' | null;
 }
 
@@ -41,8 +42,8 @@ function initialState(): GenieState {
     turns: [],
     confirmedCandidateId: null,
     plan: null,
-    offboard: null,
     templateDraft: null,
+    confirm: null,
     engine: null,
   };
 }
