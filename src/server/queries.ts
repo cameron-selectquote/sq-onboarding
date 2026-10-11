@@ -5,6 +5,8 @@
 
 import { financeSummary, monthlyCost } from "@/lib/finance";
 import { buildReclaimReport } from "@/lib/reclaim";
+import { seatPools } from "@/lib/seats";
+import type { SeatPool } from "@/lib/seats";
 import type { LicenseReclaimFlag } from "@/lib/reclaim";
 import type { FinanceSummary } from "@/lib/finance";
 import type { AppCatalogItem, Budget, LedgerEntry, License } from "@/lib/types";
@@ -158,4 +160,21 @@ export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: nu
 
   const rows = toQueueRows(report.licenseFlags, licenses, apps);
   return { rows, monthly: report.recurringMonthly };
+}
+
+/**
+ * Seat utilization per app: owned / assigned / available. Only apps the company
+ * actually owns seats for are returned, sorted by least-utilized first so the
+ * biggest right-sizing opportunities surface at the top of the panel.
+ */
+export async function getSeatPools(): Promise<SeatPool[]> {
+  const { repo } = await getServices();
+  const [apps, licenses] = await Promise.all([
+    repo.appCatalog.list(),
+    repo.licenses.list(),
+  ]);
+
+  return seatPools(apps, licenses)
+    .filter((p) => p.owned > 0)
+    .sort((a, b) => a.assigned / a.owned - b.assigned / b.owned);
 }

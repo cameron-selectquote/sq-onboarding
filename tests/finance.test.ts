@@ -27,8 +27,8 @@ import type {
 } from "@/lib/types";
 
 const apps: AppCatalogItem[] = [
-  { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly" },
-  { id: "zoom", name: "Zoom", category: "comms", costPerSeat: 120, billing: "annual" },
+  { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 },
+  { id: "zoom", name: "Zoom", category: "comms", costPerSeat: 120, billing: "annual", seatsOwned: 100, seatsInUseBaseline: 0 },
 ];
 
 const assetCatalog: AssetCatalogItem[] = [

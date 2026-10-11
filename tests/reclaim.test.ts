@@ -7,9 +7,9 @@ import type {
 } from "@/lib/types";
 
 const apps: AppCatalogItem[] = [
-  { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly" },
-  { id: "gitlab", name: "GitLab", category: "dev", costPerSeat: 19, billing: "monthly" },
-  { id: "slack", name: "Slack", category: "comms", costPerSeat: 8, billing: "monthly" },
+  { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 },
+  { id: "gitlab", name: "GitLab", category: "dev", costPerSeat: 19, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 },
+  { id: "slack", name: "Slack", category: "comms", costPerSeat: 8, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 },
 ];
 
 const asOf = new Date("2026-03-01T00:00:00.000Z");

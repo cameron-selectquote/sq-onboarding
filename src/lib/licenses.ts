@@ -11,16 +11,96 @@
 
 import { LedgerService } from "./ledger";
 import { monthlyCost } from "./finance";
+import { assignedSeats } from "./seats";
+import {
+  defaultClock,
+  defaultIdGenerator,
+  type Clock,
+  type IdGenerator,
+} from "./ids";
 import type { Repository } from "./repository";
 import type { License } from "./types";
+
+export interface LicenseServiceOptions {
+  idGenerator?: IdGenerator;
+  clock?: Clock;
+}
+
+/**
+ * Thrown when assigning a seat the company has no capacity for.
+ *
+ * Carries a stable `code` string so callers can identify it without relying on
+ * `instanceof`, which is unreliable across Next.js module/bundle boundaries
+ * (the class can be duplicated, so `instanceof` returns false at runtime).
+ */
+export class NoSeatsAvailableError extends Error {
+  readonly code = "no_seats_available" as const;
+  constructor(appName: string) {
+    super(`No ${appName} seats available — reclaim one or raise the owned count`);
+    this.name = "NoSeatsAvailableError";
+  }
+}
 
 export class LicenseService {
   private readonly repo: Repository;
   private readonly ledger: LedgerService;
+  private readonly nextId: IdGenerator;
+  private readonly now: Clock;
 
-  constructor(repo: Repository, ledger: LedgerService) {
+  constructor(repo: Repository, ledger: LedgerService, options: LicenseServiceOptions = {}) {
     this.repo = repo;
     this.ledger = ledger;
+    this.nextId = options.idGenerator ?? defaultIdGenerator;
+    this.now = options.clock ?? defaultClock;
+  }
+
+  /**
+   * Assign a brand-new seat to an existing hire: create the license (active),
+   * write the recurring ledger entry, and bump the budget — the create-and-grant
+   * bridge for people who were already onboarded. Mirrors how a PO creates and
+   * charges an asset in one call.
+   *
+   * Enforces the owned-seat pool: if the app has no available seats, nothing is
+   * created and NoSeatsAvailableError is thrown.
+   */
+  async assign(hireId: string, appId: string): Promise<License> {
+    const hire = await this.repo.hires.get(hireId);
+    if (!hire) throw new Error(`Hire "${hireId}" not found`);
+
+    const app = await this.repo.appCatalog.get(appId);
+    if (!app) throw new Error(`App "${appId}" not found`);
+
+    // Capacity check: assigned (baseline + active/idle/reclaim) must be below owned.
+    const licenses = await this.repo.licenses.list();
+    if (assignedSeats(app, licenses) >= app.seatsOwned) {
+      throw new NoSeatsAvailableError(app.name);
+    }
+
+    const monthly = monthlyCost(app.costPerSeat, app.billing);
+    const now = this.now().toISOString();
+
+    const license: License = {
+      id: this.nextId(),
+      hireId,
+      appId,
+      status: "active",
+      grantedAt: now,
+      lastUsedAt: now,
+    };
+    await this.repo.licenses.insert(license);
+
+    await this.ledger.writeEntry({
+      hireId,
+      type: "license_grant",
+      label: `Assign: ${app.name}`,
+      amount: monthly,
+      costType: "recurring",
+      refTable: "license",
+      refId: license.id,
+      budgetTeam: "it",
+    });
+
+    return license;
   }
 
   /** Grant a seat: license -> active, write recurring ledger entry, bump budget. */

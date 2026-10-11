@@ -184,8 +184,8 @@ const SCHEMA = {
     fieldTypes: {},
   } as SchemaEntry<User>,
   appCatalog: {
-    spec: { table: "app_catalog", columns: cols("id", "name", "category", "costPerSeat", "billing") },
-    fieldTypes: { costPerSeat: "number" },
+    spec: { table: "app_catalog", columns: cols("id", "name", "category", "costPerSeat", "billing", "seatsOwned", "seatsInUseBaseline") },
+    fieldTypes: { costPerSeat: "number", seatsOwned: "number", seatsInUseBaseline: "number" },
   } as SchemaEntry<AppCatalogItem>,
   assetCatalog: {
     spec: {

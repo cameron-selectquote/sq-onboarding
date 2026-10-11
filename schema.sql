@@ -32,7 +32,9 @@ create table app_catalog (
   name           text not null,
   category       text not null,
   cost_per_seat  numeric(12,2) not null,
-  billing        billing not null
+  billing        billing not null,
+  seats_owned    integer not null default 0,
+  seats_in_use_baseline integer not null default 0
 );
 
 create table asset_catalog (

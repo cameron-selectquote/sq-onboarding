@@ -9,8 +9,13 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { TaskStatus } from "@/lib/types";
+import { money } from "./format";
 
-async function send(url: string, method: "POST" | "PATCH", body?: unknown): Promise<void> {
+async function send(
+  url: string,
+  method: "POST" | "PATCH",
+  body?: unknown,
+): Promise<void> {
   const res = await fetch(url, {
     method,
     headers: body ? { "Content-Type": "application/json" } : undefined,
@@ -54,7 +59,13 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 };
 
 /** Board card status control — PATCH /api/tasks/:id. */
-export function TaskStatusSelect({ taskId, status }: { taskId: string; status: TaskStatus }) {
+export function TaskStatusSelect({
+  taskId,
+  status,
+}: {
+  taskId: string;
+  status: TaskStatus;
+}) {
   const { run, pending, error } = useMutation();
   return (
     <>
@@ -63,7 +74,12 @@ export function TaskStatusSelect({ taskId, status }: { taskId: string; status: T
         aria-label="Task status"
         value={status}
         disabled={pending}
-        onChange={(e) => run([() => send(`/api/tasks/${taskId}`, "PATCH", { status: e.target.value })])}
+        onChange={(e) =>
+          run([
+            () =>
+              send(`/api/tasks/${taskId}`, "PATCH", { status: e.target.value }),
+          ])
+        }
       >
         {(Object.keys(STATUS_LABEL) as TaskStatus[]).map((s) => (
           <option key={s} value={s}>
@@ -95,7 +111,9 @@ export function TaskMoveButton({
         className={primary ? "btn btn-primary" : "btn btn-secondary"}
         style={{ fontSize: 13 }}
         disabled={pending}
-        onClick={() => run([() => send(`/api/tasks/${taskId}`, "PATCH", { status: to })])}
+        onClick={() =>
+          run([() => send(`/api/tasks/${taskId}`, "PATCH", { status: to })])
+        }
       >
         {label}
       </button>
@@ -122,7 +140,13 @@ export function LicenseButton({
       <button
         className={className}
         disabled={pending || licenseIds.length === 0}
-        onClick={() => run(licenseIds.map((id) => () => send(`/api/licenses/${id}/${action}`, "POST")))}
+        onClick={() =>
+          run(
+            licenseIds.map(
+              (id) => () => send(`/api/licenses/${id}/${action}`, "POST"),
+            ),
+          )
+        }
       >
         {pending ? "Working…" : label}
       </button>
@@ -149,12 +173,19 @@ export function RaisePoForm({
       onSubmit={(e) => {
         e.preventDefault();
         const serialTag = `PO-${assetCatalogId.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
-        run([() => send("/api/pos", "POST", { assetCatalogId, hireId, serialTag })]);
+        run([
+          () => send("/api/pos", "POST", { assetCatalogId, hireId, serialTag }),
+        ]);
       }}
     >
       <div className="field">
         <label htmlFor="po-hire">For</label>
-        <select id="po-hire" className="input" value={hireId} onChange={(e) => setHireId(e.target.value)}>
+        <select
+          id="po-hire"
+          className="input"
+          value={hireId}
+          onChange={(e) => setHireId(e.target.value)}
+        >
           {hires.map((h) => (
             <option key={h.id} value={h.id}>
               {h.name}
@@ -164,7 +195,12 @@ export function RaisePoForm({
       </div>
       <div className="field">
         <label htmlFor="po-item">Item</label>
-        <select id="po-item" className="input" value={assetCatalogId} onChange={(e) => setCatalogId(e.target.value)}>
+        <select
+          id="po-item"
+          className="input"
+          value={assetCatalogId}
+          onChange={(e) => setCatalogId(e.target.value)}
+        >
           {catalog.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -172,9 +208,95 @@ export function RaisePoForm({
           ))}
         </select>
       </div>
-      <button className="btn btn-primary" disabled={pending || !hireId || !assetCatalogId}>
+      <button
+        className="btn btn-primary"
+        disabled={pending || !hireId || !assetCatalogId}
+      >
         {pending ? "Raising…" : "Raise PO"}
       </button>
+      {error && <span className="error">{error}</span>}
+    </form>
+  );
+}
+
+/** Assign a new software seat to an existing hire — POST /api/licenses. */
+export function AssignSeatForm({
+  hires,
+  apps,
+}: {
+  hires: { id: string; name: string }[];
+  apps: { id: string; name: string; available: number; monthlyCost: number }[];
+}) {
+  const { run, pending, error } = useMutation();
+  const [hireId, setHireId] = useState(hires[0]?.id ?? "");
+  const [appId, setAppId] = useState(apps[0]?.id ?? "");
+
+  const selected = apps.find((a) => a.id === appId);
+  const monthly = selected?.monthlyCost ?? 0;
+  const costText = `+${money(monthly)}/mo`;
+
+  return (
+    <form
+      style={{ display: "flex", flexDirection: "column", gap: 12 }}
+      onSubmit={(e) => {
+        e.preventDefault();
+        run([() => send("/api/licenses", "POST", { hireId, appId })]);
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "flex-end",
+          gap: 12,
+        }}
+      >
+        <div className="field" style={{ flex: "1 1 180px" }}>
+          <label htmlFor="seat-hire">For</label>
+          <select
+            id="seat-hire"
+            className="input"
+            value={hireId}
+            onChange={(e) => setHireId(e.target.value)}
+          >
+            {hires.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field" style={{ flex: "1 1 180px" }}>
+          <label htmlFor="seat-app">Seat</label>
+          <select
+            id="seat-app"
+            className="input"
+            value={appId}
+            onChange={(e) => setAppId(e.target.value)}
+          >
+            {apps.map((a) => (
+              <option key={a.id} value={a.id} disabled={a.available <= 0}>
+                {a.name}{" "}
+                {a.available <= 0 ? "(no seats left)" : `(${a.available} left)`}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          className="btn btn-primary"
+          style={{ flex: "0 0 auto" }}
+          disabled={pending || !hireId || !appId}
+        >
+          {pending ? "Assigning…" : "Assign seat"}
+        </button>
+      </div>
+      <div
+        className="meter-head"
+        style={{ fontSize: 13, alignItems: "center" }}
+      >
+        <span className="muted">Adds to recurring burn</span>
+        <span className="count">{costText}</span>
+      </div>
       {error && <span className="error">{error}</span>}
     </form>
   );

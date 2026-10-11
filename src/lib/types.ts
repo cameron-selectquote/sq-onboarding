@@ -16,12 +16,7 @@ export type Billing = "monthly" | "annual";
 /** How a cost hits the ledger. */
 export type CostType = "none" | "one_time" | "recurring";
 
-export type TaskStatus =
-  | "todo"
-  | "in_progress"
-  | "review"
-  | "blocked"
-  | "done";
+export type TaskStatus = "todo" | "in_progress" | "review" | "blocked" | "done";
 
 export type LicenseStatus = "active" | "idle" | "reclaim" | "revoked";
 
@@ -64,6 +59,14 @@ export interface AppCatalogItem {
   category: string;
   costPerSeat: number;
   billing: Billing;
+  /** Total seats the company owns for this app (the licensing pool). */
+  seatsOwned: number;
+  /**
+   * Seats already consumed by existing staff before this onboarding batch —
+   * company-wide usage not represented by individual onboarding `license`
+   * rows. Added to the live license count to get total seats in use.
+   */
+  seatsInUseBaseline: number;
 }
 
 export interface AssetCatalogItem {
