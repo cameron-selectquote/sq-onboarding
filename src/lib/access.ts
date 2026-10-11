@@ -164,7 +164,6 @@ const NAV: {title: string | null; view: View; items: NavLink[]}[] = [
     view: 'specialist',
     items: [
       {href: '/specialist', label: 'Board'},
-      {href: '/specialist/hires', label: 'Hires'},
       {href: '/specialist/templates', label: 'Templates'},
     ],
   },
