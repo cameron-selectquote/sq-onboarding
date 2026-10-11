@@ -32,7 +32,7 @@ function candidateIdFrom(text: string): string | null {
   return all.length === 1 ? all[0]! : null;
 }
 
-export function GenieChat() {
+export function GenieChat({initialName}: {initialName?: string}) {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -66,24 +66,41 @@ export function GenieChat() {
     };
   }, []);
 
+  // Auto-start from a candidate ("Run Genie" on the candidates page). Fires
+  // once, after the greeting is on screen, so the Genie opens already focused
+  // on that person instead of a blank prompt.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!initialName || autoStarted.current) return;
+    if (turns.length === 0) return; // wait for the greeting
+    autoStarted.current = true;
+    void sendMessage(initialName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialName, turns.length]);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({behavior: 'smooth'});
   }, [turns]);
 
-  async function send() {
-    const message = input.trim();
-    if (!message || busy) return;
-    setInput('');
+  /** Send a message (from the input box or auto-started from a candidate). */
+  async function sendMessage(message: string) {
+    const text = message.trim();
+    if (!text || busy) return;
     // Snapshot the conversation so far as history for context (the agent is
     // stateless across requests), then optimistically add this user turn.
     const history = turns.map((t) => ({role: t.role, text: t.text}));
-    setTurns((t) => [...t, {role: 'user', text: message}]);
+    setTurns((t) => [...t, {role: 'user', text}]);
     setBusy(true);
     try {
       const res = await fetch('/api/genie', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({message, history, confirmedCandidateId, plan}),
+        body: JSON.stringify({
+          message: text,
+          history,
+          confirmedCandidateId,
+          plan,
+        }),
       });
       const data = (await res.json()) as GenieReply & {error?: string};
       if (!res.ok) throw new Error(data.error ?? 'Request failed');
@@ -107,6 +124,13 @@ export function GenieChat() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function send() {
+    const message = input.trim();
+    if (!message) return;
+    setInput('');
+    void sendMessage(message);
   }
 
   return (
