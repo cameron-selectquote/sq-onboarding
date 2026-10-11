@@ -1,4 +1,5 @@
-import type { CostType, Team } from "@/lib/types";
+import type { CostType, Team, TaskStatus } from "@/lib/types";
+import type { HireStatus } from "@/lib/progress";
 
 const TEAM_LABEL: Record<Team, string> = {
   hr: "HR",
@@ -29,6 +30,40 @@ export function teamTag(team: Team): string {
 
 export function isTeam(value: string | undefined): value is Team {
   return value !== undefined && value in TEAM_LABEL;
+}
+
+/** A hire's roll-up status as a label + pill class (reuses board column names). */
+const HIRE_STATUS: Record<HireStatus, { label: string; pill: string }> = {
+  none: { label: "No tasks", pill: "pill pill-none" },
+  todo: { label: "To do", pill: "pill pill-none" },
+  in_progress: { label: "In progress", pill: "pill pill-progress" },
+  blocked: { label: "Blocked", pill: "pill pill-blocked" },
+  done: { label: "Done", pill: "pill pill-done" },
+};
+
+export function hireStatusLabel(status: HireStatus): string {
+  return HIRE_STATUS[status].label;
+}
+
+export function hireStatusPill(status: HireStatus): string {
+  return HIRE_STATUS[status].pill;
+}
+
+/** A single task's status as a label + pill class. */
+const TASK_STATUS: Record<TaskStatus, { label: string; pill: string }> = {
+  todo: { label: "To do", pill: "pill pill-none" },
+  in_progress: { label: "In progress", pill: "pill pill-progress" },
+  review: { label: "Review", pill: "pill pill-progress" },
+  blocked: { label: "Blocked", pill: "pill pill-blocked" },
+  done: { label: "Done", pill: "pill pill-done" },
+};
+
+export function taskStatusLabel(status: TaskStatus): string {
+  return TASK_STATUS[status].label;
+}
+
+export function taskStatusPill(status: TaskStatus): string {
+  return TASK_STATUS[status].pill;
 }
 
 /** "$1,450", "$12.50", "−$120" — cents only when there are cents. */
