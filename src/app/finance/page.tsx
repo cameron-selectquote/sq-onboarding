@@ -152,7 +152,6 @@ export default async function FinanceOverview() {
         <section className="panel" style={{ gap: 6 }}>
           <div className="panel-head" style={{ paddingBottom: 6 }}>
             <span className="panel-title">Live ledger</span>
-            <span className="tag tag-accent-2">● Live</span>
           </div>
           {recent.length === 0 && (
             <span className="empty">No ledger activity yet. Grant a seat or raise a PO from a team queue.</span>
