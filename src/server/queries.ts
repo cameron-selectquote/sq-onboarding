@@ -3,10 +3,10 @@
  * its endpoint can't drift apart.
  */
 
-import { financeSummary, monthlyCost } from "@/lib/finance";
+import { buildBvA, financeSummary, monthlyCost, recurringMonthlyBurn } from "@/lib/finance";
 import { buildReclaimReport } from "@/lib/reclaim";
 import type { LicenseReclaimFlag } from "@/lib/reclaim";
-import type { FinanceSummary } from "@/lib/finance";
+import type { BvAReport, FinanceSummary } from "@/lib/finance";
 import type { AppCatalogItem, Budget, LedgerEntry, License } from "@/lib/types";
 import { OFFBOARDING_COHORT } from "@/data/seed";
 import { getServices } from "./store";
@@ -158,4 +158,25 @@ export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: nu
 
   const rows = toQueueRows(report.licenseFlags, licenses, apps);
   return { rows, monthly: report.recurringMonthly };
+}
+
+/**
+ * Budget vs Actual vs Forecast for the current quarter (company-wide: all team
+ * budgets summed, all ledger spend). Forward months accrue the current recurring
+ * burn rate (conservative: "if we keep the seats we have, no new POs"). The
+ * finance overview and any BvA endpoint read this, so they can't drift.
+ */
+export async function getBudgetVsActual(asOf: Date = new Date()): Promise<BvAReport> {
+  const { repo } = await getServices();
+  const [ledgerEntries, budgets, licenses, apps] = await Promise.all([
+    repo.ledgerEntries.list(),
+    repo.budgets.list(),
+    repo.licenses.list(),
+    repo.appCatalog.list(),
+  ]);
+
+  const budgetLimit = budgets.reduce((acc, b) => acc + b.limit, 0);
+  const monthlyRecurringForecast = recurringMonthlyBurn(licenses, apps);
+
+  return buildBvA({ ledgerEntries, budgetLimit, monthlyRecurringForecast, asOf });
 }

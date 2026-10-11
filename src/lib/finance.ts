@@ -263,6 +263,67 @@ export function burnDelta(series: BurnPoint[], lagMonths: 1 | 12): TrendDelta {
   return delta(current, burnByMonth.get(priorKey)!, true);
 }
 
+export interface ForecastPoint {
+  /** Calendar month key, "YYYY-MM" (UTC). */
+  month: string;
+  /** Projected recurring burn rate ($/mo) for this future month. */
+  burn: number;
+  /** Always true — marks these as projected, not actual, for the UI. */
+  projected: true;
+}
+
+/** Add `n` months to a "YYYY-MM" key, returning a new "YYYY-MM" key. */
+function addMonths(monthKey: string, n: number): string {
+  const [y, m] = monthKey.split("-").map(Number) as [number, number];
+  const zero = (y * 12 + (m - 1)) + n; // months since year 0
+  const year = Math.floor(zero / 12);
+  const month = (zero % 12) + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+/**
+ * Project recurring burn forward `monthsAhead` months by fitting a least-squares
+ * line to the last `lookback` points of the cumulative-burn series and
+ * extending its slope. Trend-based (not flat) so the projection reflects the
+ * recent growth rate — the "where we're headed" line for budget-vs-forecast.
+ *
+ * Returns future points only (not the history), each flagged `projected`.
+ * Burn is clamped at >= 0 (you can't project a negative run-rate). An empty or
+ * single-point series yields no forecast (nothing to fit a slope to).
+ */
+export function forecastBurn(
+  series: BurnPoint[],
+  monthsAhead: number,
+  lookback = 6,
+): ForecastPoint[] {
+  if (series.length < 2 || monthsAhead <= 0) return [];
+
+  // Fit y = a + b*x over the last `lookback` points, x = 0..n-1.
+  const window = series.slice(-Math.max(2, lookback));
+  const n = window.length;
+  const xs = window.map((_, i) => i);
+  const ys = window.map((p) => p.burn);
+  const sumX = sum(xs);
+  const sumY = sum(ys);
+  const sumXY = sum(xs.map((x, i) => x * ys[i]!));
+  const sumXX = sum(xs.map((x) => x * x));
+  const denom = n * sumXX - sumX * sumX;
+  const slope = denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+
+  const lastMonth = window[n - 1]!.month;
+  const out: ForecastPoint[] = [];
+  for (let k = 1; k <= monthsAhead; k++) {
+    const projected = intercept + slope * (n - 1 + k);
+    out.push({
+      month: addMonths(lastMonth, k),
+      burn: Math.max(0, Math.round(projected)),
+      projected: true,
+    });
+  }
+  return out;
+}
+
 export interface TrendDelta {
   /** Spend in the most recent month. */
   current: number;
@@ -318,6 +379,137 @@ export function yearOverYear(series: MonthlySpend[]): TrendDelta {
 
   if (!totalByMonth.has(priorKey)) return delta(current, 0, false);
   return delta(current, totalByMonth.get(priorKey)!, true);
+}
+
+// ===== Budget vs Actual vs Forecast (BvA) ==================================
+
+/** The three month keys of the quarter containing `date` (UTC), e.g. Q1 -> 01,02,03. */
+export function quarterMonths(date: Date): string[] {
+  const y = date.getUTCFullYear();
+  const q = Math.floor(date.getUTCMonth() / 3); // 0..3
+  const firstMonth = q * 3 + 1; // 1,4,7,10
+  return [0, 1, 2].map((i) => `${y}-${String(firstMonth + i).padStart(2, "0")}`);
+}
+
+/** A short label for the quarter containing `date`, e.g. "2026-Q1". */
+export function quarterLabel(date: Date): string {
+  const y = date.getUTCFullYear();
+  const q = Math.floor(date.getUTCMonth() / 3) + 1;
+  return `${y}-Q${q}`;
+}
+
+export interface BvAMonth {
+  /** Calendar month key, "YYYY-MM". */
+  month: string;
+  /** Flat budget ceiling for the quarter (same on every month — the plan line). */
+  budget: number;
+  /** Cumulative actual spend within the quarter through this month, or null if future. */
+  actual: number | null;
+  /** Cumulative projected spend through this month, or null for past months. */
+  forecast: number | null;
+}
+
+export interface BvAReport {
+  /** "2026-Q1" style label for the quarter in view. */
+  quarter: string;
+  /** One row per month of the quarter (3 rows), oldest first. */
+  months: BvAMonth[];
+  /** The quarter's flat budget limit. */
+  budget: number;
+  /** Cumulative actual spend so far this quarter (through the current month). */
+  actualToDate: number;
+  /** Projected cumulative spend at quarter end (actual + remaining forecast). */
+  projectedEndOfQuarter: number;
+  /** Budget prorated to the current month (limit × monthsElapsed / 3). */
+  budgetToDate: number;
+  /** actualToDate − budgetToDate. Positive = over plan right now. */
+  varianceToDate: number;
+  /** projectedEndOfQuarter − budget. Positive = projected to finish over. */
+  projectedVariance: number;
+  /** First month key where cumulative (actual or forecast) exceeds budget, or null. */
+  crossoverMonth: string | null;
+}
+
+/**
+ * Budget vs Actual vs Forecast for the quarter containing `asOf`.
+ *
+ * - Actual: cumulative *total* spend (recurring + one-time), reset at quarter
+ *   start, summed by month through the current month.
+ * - Forecast: continues from actual-to-date, adding the trend-based recurring
+ *   burn each remaining month (one-time POs are not predicted — conservative).
+ * - Budget: the quarter's flat limit as a ceiling across all three months.
+ *
+ * `monthlyRecurringForecast` is the per-month recurring increment used to
+ * project forward (derive it from forecastBurn's slope, or pass current burn).
+ */
+export function buildBvA(input: {
+  ledgerEntries: LedgerEntry[];
+  budgetLimit: number;
+  monthlyRecurringForecast: number;
+  asOf: Date;
+}): BvAReport {
+  const months = quarterMonths(input.asOf);
+  const currentMonth = `${input.asOf.getUTCFullYear()}-${String(input.asOf.getUTCMonth() + 1).padStart(2, "0")}`;
+
+  // Per-month total spend within the quarter (recurring + one-time), from the ledger.
+  const spendByMonth = new Map<string, number>();
+  for (const e of input.ledgerEntries) {
+    const m = e.createdAt.slice(0, 7);
+    if (months.includes(m)) spendByMonth.set(m, (spendByMonth.get(m) ?? 0) + e.amount);
+  }
+
+  const rows: BvAMonth[] = [];
+  let cumulative = 0;
+  let actualToDate = 0;
+  let projectedCumulative = 0;
+  let crossoverMonth: string | null = null;
+
+  for (const month of months) {
+    const isPast = month < currentMonth;
+    const isCurrent = month === currentMonth;
+    const isFuture = month > currentMonth;
+
+    let actual: number | null = null;
+    let forecast: number | null = null;
+
+    if (isPast || isCurrent) {
+      cumulative += spendByMonth.get(month) ?? 0;
+      actual = cumulative;
+      actualToDate = cumulative;
+      projectedCumulative = cumulative; // forecast tracks actual up to now
+    }
+    if (isFuture) {
+      projectedCumulative += input.monthlyRecurringForecast;
+      forecast = projectedCumulative;
+    }
+    if (isCurrent) {
+      forecast = cumulative; // forecast line meets actual at "today"
+    }
+
+    // Crossover: first month the running line (actual while known, else forecast)
+    // exceeds the budget ceiling.
+    const lineValue = isFuture ? projectedCumulative : cumulative;
+    if (crossoverMonth === null && lineValue > input.budgetLimit) {
+      crossoverMonth = month;
+    }
+
+    rows.push({ month, budget: input.budgetLimit, actual, forecast });
+  }
+
+  const monthsElapsed = months.filter((m) => m <= currentMonth).length;
+  const budgetToDate = (input.budgetLimit * monthsElapsed) / 3;
+
+  return {
+    quarter: quarterLabel(input.asOf),
+    months: rows,
+    budget: input.budgetLimit,
+    actualToDate,
+    projectedEndOfQuarter: projectedCumulative,
+    budgetToDate,
+    varianceToDate: actualToDate - budgetToDate,
+    projectedVariance: projectedCumulative - input.budgetLimit,
+    crossoverMonth,
+  };
 }
 
 export interface FinanceSummary {

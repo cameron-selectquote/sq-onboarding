@@ -1,5 +1,5 @@
 import { getServices } from "@/server/store";
-import { getFinanceSummary, getReclaimQueue } from "@/server/queries";
+import { getBudgetVsActual, getFinanceSummary, getReclaimQueue } from "@/server/queries";
 import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, recurringAddedSince } from "@/lib/finance";
 import { Kpi, Meter, PageHead, Shell } from "../_components/Shell";
 import { money, teamLabel, timeAgo } from "../_components/format";
@@ -12,11 +12,12 @@ const COST_TYPE_LABEL = { none: "—", one_time: "one-time", recurring: "recurri
 /** Finance overview (design 2c): burn, budgets, live ledger. */
 export default async function FinanceOverview() {
   const { repo } = await getServices();
-  const [{ summary, budgets }, reclaim, entries, hires] = await Promise.all([
+  const [{ summary, budgets }, reclaim, entries, hires, bva] = await Promise.all([
     getFinanceSummary(),
     getReclaimQueue(),
     repo.ledgerEntries.list(),
     repo.hires.list(),
+    getBudgetVsActual(),
   ]);
   const hireById = new Map(hires.map((h) => [h.id, h]));
 
@@ -81,6 +82,39 @@ export default async function FinanceOverview() {
           tone="good"
         />
       </div>
+      <section className="panel">
+        <div className="panel-head" style={{ paddingBottom: 6 }}>
+          <span className="panel-title">Budget vs actual vs forecast · {bva.quarter}</span>
+          <span style={{ display: "flex", gap: 6 }}>
+            <span className={bva.varianceToDate > 0 ? "tag tag-accent-2" : "tag"}>
+              {bva.varianceToDate >= 0 ? "+" : "−"}{money(Math.abs(Math.round(bva.varianceToDate)))} vs plan to date
+            </span>
+            <span className={bva.projectedVariance > 0 ? "tag tag-accent-2" : "tag"}>
+              {bva.projectedVariance >= 0 ? "projected +" : "projected −"}{money(Math.abs(Math.round(bva.projectedVariance)))} at quarter end
+            </span>
+          </span>
+        </div>
+        <span className="meter-note" style={{ paddingBottom: 4 }}>
+          {bva.projectedVariance > 0
+            ? `On the current run-rate, spend is projected to finish ${money(Math.round(bva.projectedVariance))} over the ${money(bva.budget)} budget${bva.crossoverMonth ? `, crossing the line in ${monthLabel(bva.crossoverMonth)}` : ""}.`
+            : `On the current run-rate, spend is projected to finish ${money(Math.abs(Math.round(bva.projectedVariance)))} under the ${money(bva.budget)} budget.`}
+        </span>
+        {bva.months.map((m) => {
+          const value = m.actual ?? m.forecast ?? 0;
+          const isForecast = m.actual === null;
+          const over = value > bva.budget;
+          return (
+            <Meter
+              key={m.month}
+              label={`${monthLabel(m.month)}${isForecast ? " (forecast)" : ""}`}
+              value={`${money(Math.round(value))} of ${money(bva.budget)}`}
+              pct={(value / bva.budget) * 100}
+              hot={over}
+              note={over ? "Over budget" : isForecast ? "projected" : undefined}
+            />
+          );
+        })}
+      </section>
       <div className="split">
         <section className="panel">
           <span className="panel-title">Budget burn-down</span>
