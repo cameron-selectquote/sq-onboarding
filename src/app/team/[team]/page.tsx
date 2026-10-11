@@ -101,7 +101,9 @@ export default async function TeamQueue({
                         <Avatar name={j.hireName ?? "?"} />
                         <div className="who-text">
                           <span className="who-name">{j.hireName ?? "Unassigned"}</span>
-                          <span className="who-sub">{j.app}</span>
+                          <span className="who-sub">
+                            {j.status === "reclaiming" ? "Reclaiming" : "Pending"} · flagged by {j.createdByTeam === "it" ? "IT" : "Finance"}
+                          </span>
                         </div>
                       </div>
                       <span style={{ fontSize: 14 }}>{j.app} seat</span>
