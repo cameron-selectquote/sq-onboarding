@@ -124,9 +124,24 @@ create table notification (
   read         boolean not null default false
 );
 
+-- Pre-hire records the Onboarding Genie searches by name. Publishing a plan
+-- flips status to 'onboarding' and links the created hire.
+create table candidate (
+  id                text primary key,
+  name              text not null,
+  title             text not null,
+  role_name         text,
+  hiring_manager_id text references app_user(id) on delete set null,
+  resume_file       text,
+  start_date        date,
+  status            text not null default 'new',  -- new | onboarding
+  hire_id           text references hire(id) on delete set null
+);
+
 -- Hot paths for the finance/reclaim queries.
 create index idx_ledger_hire   on ledger_entry(hire_id);
 create index idx_license_hire  on license(hire_id);
 create index idx_license_app   on license(app_id);
 create index idx_task_hire     on task(hire_id);
 create index idx_asset_hire    on asset(assigned_to_hire_id);
+create index idx_candidate_name on candidate(lower(name));

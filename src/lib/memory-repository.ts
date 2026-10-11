@@ -7,12 +7,13 @@
  * callers.
  */
 
-import type { Collection, Repository } from "./repository";
+import type {Collection, Repository} from './repository';
 import type {
   AppCatalogItem,
   Asset,
   AssetCatalogItem,
   Budget,
+  Candidate,
   Company,
   Hire,
   LedgerEntry,
@@ -22,9 +23,9 @@ import type {
   Template,
   TemplateTask,
   User,
-} from "./types";
+} from './types';
 
-class MemoryCollection<T extends { id: string }> implements Collection<T> {
+class MemoryCollection<T extends {id: string}> implements Collection<T> {
   private readonly store = new Map<string, T>();
 
   async list(): Promise<T[]> {
@@ -50,7 +51,7 @@ class MemoryCollection<T extends { id: string }> implements Collection<T> {
       throw new Error(`Record with id "${id}" not found`);
     }
     // Never let a patch change the primary key.
-    const next = { ...existing, ...patch, id: existing.id } as T;
+    const next = {...existing, ...patch, id: existing.id} as T;
     this.store.set(id, next);
     return clone(next);
   }
@@ -66,7 +67,7 @@ class MemoryCollection<T extends { id: string }> implements Collection<T> {
 
 /** Defensive copy so callers can't mutate stored records by reference. */
 function clone<T>(value: T): T {
-  if (typeof structuredClone === "function") {
+  if (typeof structuredClone === 'function') {
     return structuredClone(value);
   }
   return JSON.parse(JSON.stringify(value)) as T;
@@ -86,6 +87,7 @@ export class MemoryRepository implements Repository {
   budgets = new MemoryCollection<Budget>();
   ledgerEntries = new MemoryCollection<LedgerEntry>();
   notifications = new MemoryCollection<Notification>();
+  candidates = new MemoryCollection<Candidate>();
 }
 
 /** Factory kept separate so callers depend on the interface, not the class. */

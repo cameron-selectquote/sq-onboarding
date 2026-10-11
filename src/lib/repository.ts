@@ -13,6 +13,7 @@ import type {
   Asset,
   AssetCatalogItem,
   Budget,
+  Candidate,
   Company,
   Hire,
   LedgerEntry,
@@ -22,10 +23,10 @@ import type {
   Template,
   TemplateTask,
   User,
-} from "./types";
+} from './types';
 
 /** A single typed collection of records keyed by `id`. */
-export interface Collection<T extends { id: string }> {
+export interface Collection<T extends {id: string}> {
   list(): Promise<T[]>;
   get(id: string): Promise<T | null>;
   insert(record: T): Promise<T>;
@@ -49,4 +50,5 @@ export interface Repository {
   budgets: Collection<Budget>;
   ledgerEntries: Collection<LedgerEntry>;
   notifications: Collection<Notification>;
+  candidates: Collection<Candidate>;
 }

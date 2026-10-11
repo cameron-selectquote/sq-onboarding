@@ -16,6 +16,7 @@ import type {
   Asset,
   AssetCatalogItem,
   Budget,
+  Candidate,
   Company,
   Hire,
   License,
@@ -46,6 +47,7 @@ export interface SeedData {
   tasks: Task[];
   licenses: License[];
   budgets: Budget[];
+  candidates: Candidate[];
 }
 
 /** ISO timestamp `n` days before load, so idle/reclaim flags stay meaningful. */
@@ -642,6 +644,56 @@ export const seedData: SeedData = {
       spent: 0,
     },
   ],
+
+  // Pre-hire records the Onboarding Genie searches by name. Titles map to the
+  // seeded templates (Software Engineer / Designer / Operations). "Ada Byron"
+  // is deliberately title-only (roleName null) to exercise the manual path.
+  candidates: [
+    {
+      id: 'cand_1',
+      name: 'Nora Alvarez',
+      title: 'Senior Software Engineer',
+      roleName: 'Software Engineer',
+      hiringManagerId: 'u_mgr',
+      resumeFile: 'nora-alvarez-resume.pdf',
+      startDate: '2026-03-02',
+      status: 'new',
+      hireId: null,
+    },
+    {
+      id: 'cand_2',
+      name: 'Marcus Lee',
+      title: 'Product Designer',
+      roleName: 'Designer',
+      hiringManagerId: 'u_mgr',
+      resumeFile: 'marcus-lee-resume.pdf',
+      startDate: '2026-03-09',
+      status: 'new',
+      hireId: null,
+    },
+    {
+      id: 'cand_3',
+      name: 'Priya Nair',
+      title: 'Operations Coordinator',
+      roleName: 'Operations',
+      hiringManagerId: 'u_mgr',
+      resumeFile: 'priya-nair-resume.pdf',
+      startDate: '2026-03-16',
+      status: 'new',
+      hireId: null,
+    },
+    {
+      id: 'cand_4',
+      name: 'Ada Byron',
+      title: 'Staff Software Engineer',
+      roleName: null,
+      hiringManagerId: 'u_mgr',
+      resumeFile: 'ada-byron-resume.pdf',
+      startDate: null,
+      status: 'new',
+      hireId: null,
+    },
+  ],
 };
 
 seedData.tasks = seedTasks(
@@ -656,7 +708,7 @@ seedData.tasks = seedTasks(
  * id, so loadSeed is safe to call more than once (and resilient to a prior
  * partial load).
  */
-async function insertIfAbsent<T extends { id: string }>(
+async function insertIfAbsent<T extends {id: string}>(
   collection: Collection<T>,
   record: T,
 ): Promise<void> {
@@ -679,9 +731,11 @@ export async function loadSeed(
   for (const a of data.assetCatalog) await insertIfAbsent(repo.assetCatalog, a);
   for (const a of data.assets) await insertIfAbsent(repo.assets, a);
   for (const t of data.templates) await insertIfAbsent(repo.templates, t);
-  for (const t of data.templateTasks) await insertIfAbsent(repo.templateTasks, t);
+  for (const t of data.templateTasks)
+    await insertIfAbsent(repo.templateTasks, t);
   for (const h of data.hires) await insertIfAbsent(repo.hires, h);
   for (const t of data.tasks) await insertIfAbsent(repo.tasks, t);
   for (const l of data.licenses) await insertIfAbsent(repo.licenses, l);
   for (const b of data.budgets) await insertIfAbsent(repo.budgets, b);
+  for (const c of data.candidates) await insertIfAbsent(repo.candidates, c);
 }
