@@ -70,9 +70,12 @@ describe("path access", () => {
     expect(canOpenPath("manager", "/myonboarding")).toBe(false);
   });
 
-  it("admin can open everything", () => {
-    for (const p of ["/home", "/finance/reclaim", "/specialist/hires", "/team/facilities", "/manager", "/myonboarding", "/api-docs"]) {
+  it("admin can open its own sections but not the manager report or new-hire checklist", () => {
+    for (const p of ["/home", "/finance/reclaim", "/specialist/hires", "/team/facilities", "/api-docs"]) {
       expect(canOpenPath("admin", p)).toBe(true);
+    }
+    for (const p of ["/manager", "/myonboarding"]) {
+      expect(canOpenPath("admin", p)).toBe(false);
     }
   });
 
@@ -98,7 +101,7 @@ describe("sidebar nav", () => {
 
   it("admin nav reaches every section", () => {
     const all = hrefs("admin");
-    for (const href of ["/home", "/specialist", "/finance", "/finance/reclaim", "/team/it", "/manager", "/myonboarding", "/api-docs"]) {
+    for (const href of ["/home", "/specialist", "/finance", "/finance/reclaim", "/team/it", "/api-docs"]) {
       expect(all).toContain(href);
     }
   });

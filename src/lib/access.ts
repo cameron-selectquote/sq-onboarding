@@ -53,7 +53,7 @@ const teamViews = QUEUE_TEAMS.map((t) => `team:${t}` as const);
  * - Employee sees only their own checklist (no costs, no API).
  */
 const ACCESS: Record<AppRole, readonly View[]> = {
-  admin: ["home", "specialist", "finance", ...teamViews, "manager", "myonboarding", "api-docs"],
+  admin: ["home", "specialist", "finance", ...teamViews, "api-docs"],
   manager: ["home", "manager"],
   employee: ["home", "myonboarding"],
 };
