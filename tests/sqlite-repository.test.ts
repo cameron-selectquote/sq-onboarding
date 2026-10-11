@@ -1,6 +1,6 @@
 import { createSqliteRepository, SqliteRepository } from "@/lib/sqlite-repository";
 import { loadSeed, seedData } from "@/data/seed";
-import type { Company, Notification } from "@/lib/types";
+import type { Company, Notification, ReclaimTask } from "@/lib/types";
 
 /** Each test gets a fresh in-memory SQLite store for isolation + speed. */
 function freshRepo(): SqliteRepository {
@@ -102,6 +102,29 @@ describe("SqliteRepository collection", () => {
     const updated = await repo.notifications.update("n1", { read: true });
     expect(updated.read).toBe(true);
     expect((await repo.notifications.get("n1"))!.read).toBe(true);
+  });
+
+  it("round-trips a ReclaimTask (null timestamps), updates and filters it", async () => {
+    repo = freshRepo();
+    const task: ReclaimTask = {
+      id: "rt1",
+      licenseId: "lic_7",
+      status: "pending",
+      createdByTeam: "finance",
+      createdAt: "2026-02-01T00:00:00.000Z",
+      completedAt: null,
+      cancelledAt: null,
+    };
+    await repo.reclaimTasks.insert(task);
+    expect(await repo.reclaimTasks.get("rt1")).toEqual(task);
+
+    const updated = await repo.reclaimTasks.update("rt1", {
+      status: "reclaiming",
+    });
+    expect(updated.status).toBe("reclaiming");
+
+    const open = await repo.reclaimTasks.where((t) => t.licenseId === "lic_7");
+    expect(open.map((t) => t.id)).toEqual(["rt1"]);
   });
 
   it("loads the full seed dataset", async () => {

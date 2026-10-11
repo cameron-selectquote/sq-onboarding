@@ -3,13 +3,13 @@
  * its endpoint can't drift apart.
  */
 
-import { financeSummary, monthlyCost } from "@/lib/finance";
+import { buildBvA, financeSummary, monthlyCost, reclaimImpact, recurringMonthlyBurn } from "@/lib/finance";
 import { buildReclaimReport } from "@/lib/reclaim";
 import { seatPools } from "@/lib/seats";
 import type { SeatPool } from "@/lib/seats";
 import type { LicenseReclaimFlag } from "@/lib/reclaim";
-import type { FinanceSummary } from "@/lib/finance";
-import type { AppCatalogItem, Budget, LedgerEntry, License } from "@/lib/types";
+import type { BvAReport, FinanceSummary, ReclaimImpact } from "@/lib/finance";
+import type { AppCatalogItem, Budget, Hire, LedgerEntry, License, ReclaimTask } from "@/lib/types";
 import { OFFBOARDING_COHORT } from "@/data/seed";
 import { getServices } from "./store";
 
@@ -36,13 +36,16 @@ export async function getFinanceSummary(): Promise<{ summary: FinanceSummary; bu
     budgets,
   });
 
-  // Canonical "reclaimable": the summary and the finance dashboard must agree,
-  // so override finance.ts's status-only figure with the reclaim queue total
-  // (idle/reclaim + rule-flagged seats) that the overview tile and reclaim page
-  // already render. One computation (getReclaimQueue) behind both the API and
-  // the view, so they can't drift.
-  const { monthly: reclaimableMonthly } = await getReclaimQueue();
-  summary.reclaimable = reclaimableMonthly;
+  // Canonical "reclaimable": the summary, the finance dashboard, and
+  // GET /api/reclaim must all agree, so both reclaim figures are sourced from
+  // the single reclaim engine (buildReclaimReport, via getReclaimQueue) rather
+  // than finance.ts. The two units stay separate — recurring $/mo and the
+  // one-time asset residual $ are never summed. One computation behind both the
+  // API and the view, so they can't drift.
+  const { monthly: reclaimableMonthly, oneTimeAsset: reclaimableOneTimeAsset } =
+    await getReclaimQueue();
+  summary.reclaimableRecurringMonthly = reclaimableMonthly;
+  summary.reclaimableOneTimeAsset = reclaimableOneTimeAsset;
 
   return { summary, budgets };
 }
@@ -89,12 +92,28 @@ const WHY: Record<string, string> = {
   role_mismatch: "Outside the role's stack",
 };
 
+export interface ReclaimSeat {
+  licenseId: string;
+  /** Hire holding the seat, or null if unassigned. */
+  hireName: string | null;
+  /** App display name. */
+  app: string;
+  /** Per-seat monthly cost. */
+  monthly: number;
+  /** The specific evidence for flagging (e.g. "Unused for 50 days (threshold 30)"). */
+  detail: string;
+}
+
 export interface QueueRow {
   key: string;
+  /** The reclaim reason this row aggregates (idle/reclaim/duplicate/role_mismatch). */
+  reason: string;
   what: string;
   why: string;
   licenseIds: string[];
   monthly: number;
+  /** Individual seats behind this row, for drill-down. */
+  seats: ReclaimSeat[];
 }
 
 /**
@@ -106,9 +125,11 @@ function toQueueRows(
   licenseFlags: LicenseReclaimFlag[],
   licenses: License[],
   apps: AppCatalogItem[],
+  hires: Hire[],
 ): QueueRow[] {
   const appById = new Map(apps.map((a) => [a.id, a]));
   const licenseById = new Map(licenses.map((l) => [l.id, l]));
+  const hireById = new Map(hires.map((h) => [h.id, h]));
 
   const rows = new Map<string, QueueRow>();
   for (const flag of licenseFlags) {
@@ -119,13 +140,23 @@ function toQueueRows(
     const key = `${reason}:${app.id}`;
     const row = rows.get(key) ?? {
       key,
+      reason,
       what: reason === "duplicate" ? `Duplicate ${app.name} seats` : `${reason === "reclaim" ? "Flagged" : "Idle"} ${app.name} seats`,
       why: WHY[reason] ?? reason,
       licenseIds: [],
       monthly: 0,
+      seats: [],
     };
+    const seatCost = monthlyCost(app.costPerSeat, app.billing);
     row.licenseIds.push(license.id);
-    row.monthly += monthlyCost(app.costPerSeat, app.billing);
+    row.monthly += seatCost;
+    row.seats.push({
+      licenseId: license.id,
+      hireName: hireById.get(license.hireId)?.name ?? null,
+      app: app.name,
+      monthly: seatCost,
+      detail: flag.detail,
+    });
     rows.set(key, row);
   }
   return [...rows.values()].sort((a, b) => b.monthly - a.monthly);
@@ -135,9 +166,15 @@ function toQueueRows(
  * The finance reclaim queue and its monthly total. Reads the single reclaim
  * engine (buildReclaimReport) and groups its license flags for display, so the
  * overview's Reclaimable tile, the reclaim page, and GET /api/reclaim all
- * trace to one computation. `monthly` equals the report's `recurringMonthly`.
+ * trace to one computation. `monthly` equals the report's `recurringMonthly`
+ * ($/mo) and `oneTimeAsset` equals its `oneTimeAssetResidual` (one-off $) —
+ * kept as separate units, never summed.
  */
-export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: number }> {
+export async function getReclaimQueue(): Promise<{
+  rows: QueueRow[];
+  monthly: number;
+  oneTimeAsset: number;
+}> {
   const { repo } = await getServices();
   const [licenses, apps, assets, assetCatalog, hires] = await Promise.all([
     repo.licenses.list(),
@@ -158,8 +195,195 @@ export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: nu
     offboardingHireIds,
   });
 
-  const rows = toQueueRows(report.licenseFlags, licenses, apps);
-  return { rows, monthly: report.recurringMonthly };
+  const rows = toQueueRows(report.licenseFlags, licenses, apps, hires);
+  return {
+    rows,
+    monthly: report.recurringMonthly,
+    oneTimeAsset: report.oneTimeAssetResidual,
+  };
+}
+
+/**
+ * Drop seats that already have an open reclaim job from the actionable queue
+ * rows, WITHOUT touching the recoverable totals.
+ *
+ * Finance-page presenter only (BuildPlan reclaim-tracked-jobs, Option B): once a
+ * seat has an open job (ReclaimTask 'pending'/'reclaiming'), it must stop
+ * appearing as a clickable queue row so finance can't re-flag it — but its $/mo
+ * stays in the banner/breakdown because the money is in flight, not recovered.
+ * So this filters the *rows only*; it never recomputes or exposes a total.
+ * Pure over its inputs: `rows` from getReclaimQueue, `inFlightLicenseIds` from
+ * getReclaimJobs. A row whose seats are all in flight is removed entirely; a
+ * partially-in-flight row keeps its remaining seats, with licenseIds/monthly/
+ * seats recomputed to match what's still actionable.
+ */
+export function filterQueueForInFlight(
+  rows: QueueRow[],
+  inFlightLicenseIds: ReadonlySet<string>,
+): QueueRow[] {
+  if (inFlightLicenseIds.size === 0) return rows;
+  const filtered: QueueRow[] = [];
+  for (const row of rows) {
+    const seats = row.seats.filter((s) => !inFlightLicenseIds.has(s.licenseId));
+    if (seats.length === 0) continue;
+    filtered.push({
+      ...row,
+      seats,
+      licenseIds: seats.map((s) => s.licenseId),
+      monthly: seats.reduce((acc, s) => acc + s.monthly, 0),
+    });
+  }
+  return filtered;
+}
+
+/** Human labels + ordering for reclaim reasons in the waste breakdown. */
+const REASON_LABEL: Record<string, string> = {
+  idle: "Idle",
+  reclaim: "Flagged for reclaim",
+  duplicate: "Duplicate category",
+  role_mismatch: "Wrong role",
+};
+
+export interface WasteReason {
+  reason: string;
+  label: string;
+  /** Recoverable monthly spend from this reason. */
+  monthly: number;
+  /** Seats flagged for this reason. */
+  seats: number;
+}
+
+export interface ReclaimBreakdown {
+  /** One row per reclaim reason, biggest monthly first. */
+  reasons: WasteReason[];
+  /** Total recoverable monthly spend (sum across reasons). */
+  monthly: number;
+  /** Annualized recoverable spend (monthly × 12). */
+  annual: number;
+  /** Total flagged seats. */
+  seats: number;
+}
+
+/**
+ * Waste-by-reason breakdown for the reclaim page: the recoverable spend split by
+ * *why* it's reclaimable (idle / duplicate / wrong-role), plus the annualized
+ * total. Reads the same reclaim queue, so it stays consistent with everything
+ * else on the page.
+ */
+export async function getReclaimBreakdown(): Promise<ReclaimBreakdown> {
+  const { rows } = await getReclaimQueue();
+
+  const byReason = new Map<string, WasteReason>();
+  for (const row of rows) {
+    const existing = byReason.get(row.reason) ?? {
+      reason: row.reason,
+      label: REASON_LABEL[row.reason] ?? row.reason,
+      monthly: 0,
+      seats: 0,
+    };
+    existing.monthly += row.monthly;
+    existing.seats += row.licenseIds.length;
+    byReason.set(row.reason, existing);
+  }
+
+  const reasons = [...byReason.values()].sort((a, b) => b.monthly - a.monthly);
+  const monthly = reasons.reduce((acc, r) => acc + r.monthly, 0);
+  const seats = reasons.reduce((acc, r) => acc + r.seats, 0);
+  return { reasons, monthly, annual: monthly * 12, seats };
+}
+
+/** One open/closed reclaim job, enriched for the finance + IT views. */
+export interface ReclaimJob {
+  taskId: string;
+  status: ReclaimTask["status"];
+  licenseId: string;
+  /** Hire holding the seat, or null if unassigned. */
+  hireName: string | null;
+  /** App display name. */
+  app: string;
+  /** Per-seat monthly cost ($/mo). */
+  monthly: number;
+  createdByTeam: ReclaimTask["createdByTeam"];
+}
+
+/**
+ * The reclaim-job view shared by the finance page and the IT rail panel: open
+ * jobs (pending/reclaiming) enriched with hire + app + per-seat $/mo, plus
+ * lifecycle counts. This is a *presenter* over the reclaimTasks collection — it
+ * does NOT touch getReclaimQueue/getReclaimBreakdown/buildReclaimReport, so
+ * finance totals and the reclaim queue keep agreeing. Note: flagByStatus in the
+ * reclaim engine already counts a 'reclaim'-status license once, so an open
+ * job's seat is surfaced here but not double-counted in the recoverable totals.
+ */
+export async function getReclaimJobs(): Promise<{
+  jobs: ReclaimJob[];
+  counts: { pending: number; reclaiming: number; done: number };
+}> {
+  const { repo } = await getServices();
+  const [reclaimTasks, licenses, apps, hires] = await Promise.all([
+    repo.reclaimTasks.list(),
+    repo.licenses.list(),
+    repo.appCatalog.list(),
+    repo.hires.list(),
+  ]);
+
+  const licenseById = new Map(licenses.map((l) => [l.id, l]));
+  const appById = new Map(apps.map((a) => [a.id, a]));
+  const hireById = new Map(hires.map((h) => [h.id, h]));
+
+  const counts = { pending: 0, reclaiming: 0, done: 0 };
+  for (const t of reclaimTasks) {
+    if (t.status === "pending") counts.pending += 1;
+    else if (t.status === "reclaiming") counts.reclaiming += 1;
+    else if (t.status === "done") counts.done += 1;
+  }
+
+  const jobs: ReclaimJob[] = reclaimTasks
+    .filter((t) => t.status === "pending" || t.status === "reclaiming")
+    .map((t) => {
+      const license = licenseById.get(t.licenseId);
+      const app = license ? appById.get(license.appId) : undefined;
+      return {
+        taskId: t.id,
+        status: t.status,
+        licenseId: t.licenseId,
+        hireName: (license && hireById.get(license.hireId)?.name) ?? null,
+        app: app?.name ?? "Unknown app",
+        monthly: app ? monthlyCost(app.costPerSeat, app.billing) : 0,
+        createdByTeam: t.createdByTeam,
+      };
+    });
+
+  return { jobs, counts };
+}
+
+/**
+ * Budget vs Actual vs Forecast for the current quarter (company-wide: all team
+ * budgets summed, all ledger spend). Forward months accrue the current recurring
+ * burn rate (conservative: "if we keep the seats we have, no new POs"). The
+ * finance overview and any BvA endpoint read this, so they can't drift.
+ */
+export async function getBudgetVsActual(
+  asOf: Date = new Date(),
+): Promise<{ bva: BvAReport; reclaim: ReclaimImpact }> {
+  const { repo } = await getServices();
+  const [ledgerEntries, budgets, licenses, apps] = await Promise.all([
+    repo.ledgerEntries.list(),
+    repo.budgets.list(),
+    repo.licenses.list(),
+    repo.appCatalog.list(),
+  ]);
+
+  const budgetLimit = budgets.reduce((acc, b) => acc + b.limit, 0);
+  const monthlyRecurringForecast = recurringMonthlyBurn(licenses, apps);
+  const bva = buildBvA({ ledgerEntries, budgetLimit, monthlyRecurringForecast, asOf });
+
+  // Reclaim lever: how much the current reclaimable monthly spend would shift
+  // the quarter-end forecast if recovered now.
+  const { monthly: reclaimableMonthly } = await getReclaimQueue();
+  const reclaim = reclaimImpact(bva, reclaimableMonthly);
+
+  return { bva, reclaim };
 }
 
 /**

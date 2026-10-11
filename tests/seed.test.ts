@@ -44,6 +44,25 @@ describe("seed data", () => {
     }
   });
 
+  it("loads every reclaim task, each pointing at a real license, with open jobs on 'reclaim' seats", async () => {
+    const repo = createMemoryRepository();
+    await loadSeed(repo);
+
+    const tasks = await repo.reclaimTasks.list();
+    expect(tasks).toHaveLength(seedData.reclaimTasks.length);
+
+    const licensesById = new Map(
+      (await repo.licenses.list()).map((l) => [l.id, l]),
+    );
+    for (const t of tasks) {
+      const license = licensesById.get(t.licenseId);
+      expect(license).toBeDefined();
+      if (t.status === "pending" || t.status === "reclaiming") {
+        expect(license!.status).toBe("reclaim");
+      }
+    }
+  });
+
   it("every seed asset points at a real catalog item", async () => {
     const catalogIds = new Set(seedData.assetCatalog.map((c) => c.id));
     for (const a of seedData.assets) {

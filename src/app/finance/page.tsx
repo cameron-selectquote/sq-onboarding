@@ -1,5 +1,5 @@
 import { getServices } from "@/server/store";
-import { getFinanceSummary, getReclaimQueue } from "@/server/queries";
+import { getBudgetVsActual, getFinanceSummary, getReclaimQueue } from "@/server/queries";
 import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, recurringAddedSince } from "@/lib/finance";
 import { Kpi, Meter, PageHead, Shell } from "../_components/Shell";
 import { money, teamLabel, timeAgo } from "../_components/format";
@@ -11,12 +11,14 @@ const COST_TYPE_LABEL = { none: "—", one_time: "one-time", recurring: "recurri
 /** Finance overview (design 2c): burn, budgets, live ledger. */
 export default async function FinanceOverview() {
   const { repo } = await getServices();
-  const [{ summary, budgets }, reclaim, entries, hires] = await Promise.all([
+  const [{ summary, budgets }, reclaim, entries, hires, bvaResult] = await Promise.all([
     getFinanceSummary(),
     getReclaimQueue(),
     repo.ledgerEntries.list(),
     repo.hires.list(),
+    getBudgetVsActual(),
   ]);
+  const { bva, reclaim: bvaReclaim } = bvaResult;
   const hireById = new Map(hires.map((h) => [h.id, h]));
 
   // Start of the local day — so "today" tracks the viewer's timezone, not UTC.
@@ -76,10 +78,59 @@ export default async function FinanceOverview() {
           label="Reclaimable"
           value={money(Math.round(reclaim.monthly))}
           unit="/mo"
-          sub={`${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · ${summary.assetsOnHand} assets on hand`}
+          sub={
+            reclaim.oneTimeAsset > 0
+              ? `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · ${money(Math.round(reclaim.oneTimeAsset))} one-time asset residual`
+              : `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats`
+          }
           tone="good"
         />
       </div>
+      <section className="panel">
+        <div className="panel-head" style={{ paddingBottom: 6 }}>
+          <span className="panel-title">Budget vs actual vs forecast · {bva.quarter}</span>
+          <span style={{ display: "flex", gap: 6 }}>
+            <span className={bva.varianceToDate > 0 ? "tag tag-accent-2" : "tag"}>
+              {bva.varianceToDate >= 0 ? "+" : "−"}{money(Math.abs(Math.round(bva.varianceToDate)))} vs plan to date
+            </span>
+            <span className={bva.projectedVariance > 0 ? "tag tag-accent-2" : "tag"}>
+              {bva.projectedVariance >= 0 ? "projected +" : "projected −"}{money(Math.abs(Math.round(bva.projectedVariance)))} at quarter end
+            </span>
+          </span>
+        </div>
+        <span className="meter-note" style={{ paddingBottom: 4 }}>
+          {bva.projectedVariance > 0
+            ? `On the current run-rate, spend is projected to finish ${money(Math.round(bva.projectedVariance))} over the ${money(bva.budget)} budget${bva.crossoverMonth ? `, crossing the line in ${monthLabel(bva.crossoverMonth)}` : ""}.`
+            : `On the current run-rate, spend is projected to finish ${money(Math.abs(Math.round(bva.projectedVariance)))} under the ${money(bva.budget)} budget.`}
+        </span>
+        {bva.projectedVariance > 0 && bvaReclaim.reclaimableMonthly > 0 && (
+          <div
+            className={bvaReclaim.bringsUnderBudget ? "banner" : undefined}
+            style={bvaReclaim.bringsUnderBudget ? { marginTop: 4 } : { marginTop: 4 }}
+          >
+            <span className="meter-note">
+              {bvaReclaim.bringsUnderBudget
+                ? `Reclaim the ${money(Math.round(bvaReclaim.reclaimableMonthly))}/mo of idle seats and you recover ${money(Math.round(bvaReclaim.quarterSavings))} this quarter — back under budget with ${money(Math.abs(Math.round(bvaReclaim.projectedVarianceAfter)))} to spare.`
+                : `Reclaiming the ${money(Math.round(bvaReclaim.reclaimableMonthly))}/mo of idle seats recovers ${money(Math.round(bvaReclaim.quarterSavings))} this quarter, trimming the overage to ${money(Math.round(bvaReclaim.projectedVarianceAfter))}.`}
+            </span>
+          </div>
+        )}
+        {bva.months.map((m) => {
+          const value = m.actual ?? m.forecast ?? 0;
+          const isForecast = m.actual === null;
+          const over = value > bva.budget;
+          return (
+            <Meter
+              key={m.month}
+              label={`${monthLabel(m.month)}${isForecast ? " (forecast)" : ""}`}
+              value={`${money(Math.round(value))} of ${money(bva.budget)}`}
+              pct={(value / bva.budget) * 100}
+              hot={over}
+              note={over ? "Over budget" : isForecast ? "projected" : undefined}
+            />
+          );
+        })}
+      </section>
       <div className="split">
         <section className="panel">
           <span className="panel-title">Budget burn-down</span>

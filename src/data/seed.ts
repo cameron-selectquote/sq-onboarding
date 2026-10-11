@@ -20,6 +20,7 @@ import type {
   Company,
   Hire,
   License,
+  ReclaimTask,
   Task,
   TaskStatus,
   Template,
@@ -48,6 +49,7 @@ export interface SeedData {
   licenses: License[];
   budgets: Budget[];
   candidates: Candidate[];
+  reclaimTasks: ReclaimTask[];
 }
 
 /** ISO timestamp `n` days before load, so idle/reclaim flags stay meaningful. */
@@ -620,30 +622,69 @@ export const seedData: SeedData = {
       grantedAt: null,
       lastUsedAt: null,
     },
+    // Extra idle/flagged seats so the reclaimable total is large enough to pull
+    // a projected quarter-end overage back under budget (the BvA reclaim beat).
+    {
+      id: 'lic_12',
+      hireId: 'hire_2',
+      appId: 'github',
+      status: 'idle',
+      grantedAt: daysAgo(80),
+      lastUsedAt: daysAgo(50),
+    },
+    {
+      id: 'lic_13',
+      hireId: 'hire_4',
+      appId: 'figma',
+      status: 'idle',
+      grantedAt: daysAgo(75),
+      lastUsedAt: daysAgo(48),
+    },
+    // Second idle GitHub seat (different hire) so "Idle GitHub seats" groups to
+    // 2 — exercises the expandable drill-down with a per-seat revoke.
+    {
+      id: 'lic_15',
+      hireId: 'hire_3',
+      appId: 'github',
+      status: 'idle',
+      grantedAt: daysAgo(70),
+      lastUsedAt: daysAgo(42),
+    },
+    {
+      id: 'lic_14',
+      hireId: 'hire_5',
+      appId: 'jira',
+      status: 'reclaim',
+      grantedAt: daysAgo(85),
+      lastUsedAt: daysAgo(55),
+    },
   ],
 
+  // Per-quarter team budgets, sized so the seeded/backdated spend meaningfully
+  // approaches them — the BvA forecast crosses the quarterly ceiling within the
+  // quarter (realistic for a small, fast-scaling team).
   budgets: [
-    {id: 'bud_it', team: 'it', period: '2026-Q1', limit: 5000, spent: 0},
+    {id: 'bud_it', team: 'it', period: '2026-Q4', limit: 1500, spent: 0},
     {
       id: 'bud_vendor',
       team: 'vendor',
-      period: '2026-Q1',
-      limit: 40000,
+      period: '2026-Q4',
+      limit: 3500,
       spent: 0,
     },
     {
       id: 'bud_facilities',
       team: 'facilities',
-      period: '2026-Q1',
-      limit: 2000,
+      period: '2026-Q4',
+      limit: 600,
       spent: 0,
     },
-    {id: 'bud_hr', team: 'hr', period: '2026-Q1', limit: 3000, spent: 0},
+    {id: 'bud_hr', team: 'hr', period: '2026-Q4', limit: 400, spent: 0},
     {
       id: 'bud_finance',
       team: 'finance',
-      period: '2026-Q1',
-      limit: 3000,
+      period: '2026-Q4',
+      limit: 200,
       spent: 0,
     },
   ],
@@ -697,6 +738,31 @@ export const seedData: SeedData = {
       hireId: null,
     },
   ],
+
+  // Tracked reclaim jobs: finance flagged lic_7 (pending), IT is already
+  // working lic_14 (reclaiming). Both target seats that are already in
+  // 'reclaim' status, so an open job's seat is surfaced but never double-
+  // counted by the reclaim engine.
+  reclaimTasks: [
+    {
+      id: 'rt_1',
+      licenseId: 'lic_7',
+      status: 'pending',
+      createdByTeam: 'finance',
+      createdAt: daysAgo(2),
+      completedAt: null,
+      cancelledAt: null,
+    },
+    {
+      id: 'rt_2',
+      licenseId: 'lic_14',
+      status: 'reclaiming',
+      createdByTeam: 'finance',
+      createdAt: daysAgo(1),
+      completedAt: null,
+      cancelledAt: null,
+    },
+  ],
 };
 
 seedData.tasks = seedTasks(
@@ -741,4 +807,6 @@ export async function loadSeed(
   for (const l of data.licenses) await insertIfAbsent(repo.licenses, l);
   for (const b of data.budgets) await insertIfAbsent(repo.budgets, b);
   for (const c of data.candidates) await insertIfAbsent(repo.candidates, c);
+  for (const r of data.reclaimTasks)
+    await insertIfAbsent(repo.reclaimTasks, r);
 }

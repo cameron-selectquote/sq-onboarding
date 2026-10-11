@@ -27,6 +27,8 @@ export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'blocked' | 'done';
  */
 export type LicenseStatus = 'requested' | 'active' | 'idle' | 'reclaim' | 'revoked';
 
+export type ReclaimTaskStatus = 'pending' | 'reclaiming' | 'done' | 'cancelled';
+
 export type AssetStatus =
   | 'in_stock'
   | 'assigned'
@@ -145,6 +147,21 @@ export interface License {
   status: LicenseStatus;
   grantedAt: string | null; // ISO date
   lastUsedAt: string | null; // ISO date
+}
+
+/**
+ * A tracked reclaim job: finance flags a seat for reclaim, IT executes it.
+ * The ledger credit happens only when the job completes (via LicenseService
+ * .revoke); open/start/cancel never touch the ledger.
+ */
+export interface ReclaimTask {
+  id: string;
+  licenseId: string;
+  status: ReclaimTaskStatus;
+  createdByTeam: 'finance' | 'it';
+  createdAt: string; // ISO datetime
+  completedAt: string | null; // ISO datetime
+  cancelledAt: string | null; // ISO datetime
 }
 
 export interface Budget {

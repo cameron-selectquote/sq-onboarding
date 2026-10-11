@@ -424,7 +424,39 @@ a.seg-opt[aria-current='page'] {
   gap: 14px;
 }
 .row-seat {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+}
+
+/* — reclaim drill-down (expandable group + nested seats) — */
+.reclaim-group {
+  border-top: 1px solid var(--color-divider);
+}
+.reclaim-group:first-child {
+  border-top: 0;
+}
+.reclaim-group > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.reclaim-group > summary::-webkit-details-marker {
+  display: none;
+}
+.reclaim-group > summary > .who-name::before {
+  content: '▸ ';
+  color: var(--color-neutral-700);
+}
+.reclaim-group[open] > summary > .who-name::before {
+  content: '▾ ';
+}
+/* nested seats sit visually inside the group: inset + accent rail + tint */
+.reclaim-seats {
+  margin: 0 0 8px 44px;
+  padding-left: 14px;
+  border-left: 2px solid var(--color-divider);
+}
+.reclaim-seats .row:first-child {
+  border-top: 0;
 }
 .row-check {
   display: flex;

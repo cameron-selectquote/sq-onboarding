@@ -17,6 +17,7 @@ export * from './seats';
 export * from './progress';
 export * from './templates';
 export * from './licenses';
+export * from './reclaim-tasks';
 export * from './assets';
 export * from './candidates';
 export * from './plan';
