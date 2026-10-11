@@ -20,12 +20,10 @@ export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'blocked' | 'done';
 
 /**
  * License lifecycle.
- * - `requested`: asked for but not granted (e.g. deferred when a pool was full);
- *   holds no seat, carries no ledger spend, waits in IT's queue until granted.
  * - `active`/`idle`/`reclaim`: consuming a seat.
  * - `revoked`: cancelled/returned; the credit already hit the ledger.
  */
-export type LicenseStatus = 'requested' | 'active' | 'idle' | 'reclaim' | 'revoked';
+export type LicenseStatus = 'active' | 'idle' | 'reclaim' | 'revoked';
 
 export type ReclaimTaskStatus = 'pending' | 'reclaiming' | 'done' | 'cancelled';
 
@@ -68,7 +66,7 @@ export interface AppCatalogItem {
   category: string;
   costPerSeat: number;
   billing: Billing;
-  /** Total seats the company owns for this app (the licensing pool). */
+  /** Total seats the company owns for this app (shown for utilization only). */
   seatsOwned: number;
   /**
    * Seats already consumed by existing staff before this onboarding batch —
@@ -110,7 +108,6 @@ export interface TemplateTask {
   costType: CostType;
   /**
    * If set, this task grants a software seat for the given app when started.
-   * Starting it checks pool capacity: assigns if a seat is free, blocks if not.
    */
   appId: string | null;
 }
@@ -134,8 +131,8 @@ export interface Task {
   cost: number;
   costType: CostType;
   /**
-   * If set, starting this task grants a seat for the given app (capacity-
-   * checked). Instantiated from the originating template task.
+   * If set, starting this task grants a seat for the given app. Instantiated
+   * from the originating template task.
    */
   appId: string | null;
 }

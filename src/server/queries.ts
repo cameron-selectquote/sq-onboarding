@@ -12,11 +12,9 @@ import {
   residualValue,
 } from '@/lib/finance';
 import {buildReclaimReport} from '@/lib/reclaim';
-import {seatPools} from '@/lib/seats';
 import {hireProgress, hireStatus, toHireChecklist} from '@/lib/progress';
 import {onboardingNorms} from '@/lib/onboarding-stats';
 import type {OnboardingNorms} from '@/lib/onboarding-stats';
-import type {SeatPool} from '@/lib/seats';
 import type {HireStatus} from '@/lib/progress';
 import type {LicenseReclaimFlag} from '@/lib/reclaim';
 import type {BvAReport, FinanceSummary, ReclaimImpact} from '@/lib/finance';
@@ -413,23 +411,6 @@ export async function getBudgetVsActual(
   const reclaim = reclaimImpact(bva, reclaimableMonthly);
 
   return {bva, reclaim};
-}
-
-/**
- * Seat utilization per app: owned / assigned / available. Only apps the company
- * actually owns seats for are returned, sorted by least-utilized first so the
- * biggest right-sizing opportunities surface at the top of the panel.
- */
-export async function getSeatPools(): Promise<SeatPool[]> {
-  const {repo} = await getServices();
-  const [apps, licenses] = await Promise.all([
-    repo.appCatalog.list(),
-    repo.licenses.list(),
-  ]);
-
-  return seatPools(apps, licenses)
-    .filter((p) => p.owned > 0)
-    .sort((a, b) => a.assigned / a.owned - b.assigned / b.owned);
 }
 
 // ---- hire status (read-only "pull up a person") ---------------------------

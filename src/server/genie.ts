@@ -1292,17 +1292,41 @@ async function resolveTemplateBuilder(
     };
   }
   try {
-    const result = await templates.createTemplate({
-      roleName: draft.roleName ?? '',
-      taskTitles: draft.taskTitles,
-      seatAppIds: draft.seatAppIds,
-    });
+    // Create the template, then add each collected task + seat via the same
+    // validated TemplateService.addTask the templates UI uses.
+    const template = await templates.createTemplate(draft.roleName ?? '');
+    let added = 0;
+
+    // Plain admin/hardware tasks (owner inferred from the title; no cost).
+    for (const title of draft.taskTitles) {
+      if (!title.trim()) continue;
+      await templates.addTask(template.id, {
+        title: title.trim(),
+        ownerTeam: inferOwnerTeam(title),
+      });
+      added++;
+    }
+
+    // One recurring "Grant <App> seat" task per requested seat.
+    for (const appId of draft.seatAppIds) {
+      const app = apps.find((a) => a.id === appId);
+      if (!app) continue;
+      await templates.addTask(template.id, {
+        title: `Grant ${app.name} seat`,
+        ownerTeam: 'it',
+        cost: monthlyCost(app.costPerSeat, app.billing),
+        costType: 'recurring',
+        appId: app.id,
+      });
+      added++;
+    }
+
     return {
       ...base,
       message: [
-        `Created the **${result.template.roleName}** template with ${result.templateTasks.length} task${result.templateTasks.length === 1 ? '' : 's'}.`,
+        `Created the **${template.roleName}** template with ${added} task${added === 1 ? '' : 's'}.`,
         ``,
-        `You can now onboard someone with it — e.g. "use the ${result.template.roleName} template for <name>".`,
+        `You can now onboard someone with it — e.g. "use the ${template.roleName} template for <name>".`,
       ].join('\n'),
       templateDraft: null,
     };
@@ -1313,6 +1337,17 @@ async function resolveTemplateBuilder(
       templateDraft: draft,
     };
   }
+}
+
+/** Infer the owning team from a task title keyword; defaults to IT. */
+function inferOwnerTeam(title: string): import('@/lib/types').Team {
+  const t = title.toLowerCase();
+  if (/\b(laptop|monitor|headset|phone|hardware|ship|order)\b/.test(t)) {
+    return 'vendor';
+  }
+  if (/\b(badge|desk|building|office|facilit)\b/.test(t)) return 'facilities';
+  if (/\b(paperwork|benefits|offer|hr|payroll|i-9|w-?4)\b/.test(t)) return 'hr';
+  return 'it';
 }
 
 /** Split a comma / "and" / newline separated list into trimmed items. */
@@ -1435,10 +1470,7 @@ async function resolveRemoveSeat(
   // Find a live (active/idle/reclaim) seat for this hire + app.
   const held = await repo.licenses.where(
     (l) =>
-      l.hireId === lookup.id &&
-      l.appId === app.id &&
-      l.status !== 'revoked' &&
-      l.status !== 'requested',
+      l.hireId === lookup.id && l.appId === app.id && l.status !== 'revoked',
   );
   const license = held[0];
   if (!license) {

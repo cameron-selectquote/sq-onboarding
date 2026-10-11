@@ -290,16 +290,11 @@ export class OnboardingExecutor {
     const existing = await this.repo.licenses.where(
       (l) => l.hireId === hireId && l.appId === appId,
     );
-    let license = existing[0];
+    const license = existing[0];
     if (!license) {
-      license = await this.repo.licenses.insert({
-        id: this.nextSerial(),
-        hireId,
-        appId,
-        status: 'requested',
-        grantedAt: null,
-        lastUsedAt: null,
-      });
+      // No row yet: assign creates the license and writes the ledger entry.
+      await this.licenses.assign(hireId, appId);
+      return;
     }
     if (license.status !== 'active') {
       await this.licenses.grant(license.id);

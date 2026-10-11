@@ -419,6 +419,35 @@ a.seg-opt[aria-current='page'] {
   text-transform: uppercase;
   color: var(--color-neutral-700);
 }
+.row-tpl {
+  grid-template-columns: minmax(0, 2.2fr) 110px 110px minmax(0, 1fr) 90px;
+  gap: 10px;
+  align-items: center;
+}
+.row-tpl.is-head {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+}
+.tpl-task-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--color-divider);
+}
+@media (max-width: 860px) {
+  .row-tpl {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .row-tpl > :nth-child(2),
+  .row-tpl > :nth-child(3),
+  .row-tpl > :nth-child(4) {
+    display: none;
+  }
+}
 .row-reclaim {
   grid-template-columns: 44px minmax(0, 1fr) auto auto;
   gap: 14px;

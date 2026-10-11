@@ -18,7 +18,6 @@ export * from './ledger';
 export * from './notifications';
 export * from './finance';
 export * from './reclaim';
-export * from './seats';
 export * from './progress';
 export * from './templates';
 export * from './licenses';

@@ -15,33 +15,40 @@ import {
   defaultIdGenerator,
   type Clock,
   type IdGenerator,
-} from './ids';
-import {assignedSeats} from './seats';
-import {monthlyCost} from './finance';
-import type {Repository} from './repository';
-import type {License, Task, Team, Template, TemplateTask} from './types';
+} from "./ids";
+import type { Repository } from "./repository";
+import type {
+  CostType,
+  License,
+  Task,
+  Team,
+  Template,
+  TemplateTask,
+} from "./types";
 
 export interface TemplateServiceOptions {
   idGenerator?: IdGenerator;
   clock?: Clock;
 }
 
-/** A seat that couldn't be granted on import because the pool was full. */
-export interface DeferredSeat {
-  appId: string;
-  appName: string;
-}
-
 export interface InstantiateResult {
   tasks: Task[];
-  /** Seats actually granted (active). */
+  /** Seats granted (active) for this hire. */
   licenses: License[];
-  /**
-   * Seats that couldn't be granted because the app's pool was full. They are
-   * created as pending (requested-but-not-granted) licenses so they land in
-   * IT's "Seats waiting" queue instead of over-allocating.
-   */
-  deferred: DeferredSeat[];
+}
+
+/** A template plus its ordered template tasks — the shape the UI reads. */
+export interface TemplateWithTasks extends Template {
+  tasks: TemplateTask[];
+}
+
+/** Fields a caller supplies when adding/editing a template task. */
+export interface TemplateTaskInput {
+  title: string;
+  ownerTeam: Team;
+  cost?: number;
+  costType?: CostType;
+  appId?: string | null;
 }
 
 export class TemplateService {
@@ -83,7 +90,7 @@ export class TemplateService {
         hireId,
         title: tt.title,
         ownerTeam: tt.ownerTeam,
-        status: 'todo',
+        status: "todo",
         cost: tt.cost,
         costType: tt.costType,
         appId: tt.appId ?? null,
@@ -92,120 +99,130 @@ export class TemplateService {
     }
 
     const licenses: License[] = [];
-    const deferred: DeferredSeat[] = [];
     const grantedAt = this.now().toISOString();
 
-    // Snapshot existing licenses; track in-batch grants so requesting more
-    // seats than remain in a pool defers the overflow rather than over-granting.
-    const poolLicenses = await this.repo.licenses.list();
-
     for (const appId of appIds) {
-      const app = await this.repo.appCatalog.get(appId);
-      // Unknown app: fall back to granting active (no pool to enforce).
-      const hasRoom =
-        app ? assignedSeats(app, poolLicenses) < app.seatsOwned : true;
-
       const license: License = {
         id: this.nextId(),
         hireId,
         appId,
-        // Granted when there's room; otherwise created as `requested` so it
-        // shows in IT's "Seats waiting" queue (holds no seat, no ledger spend).
-        status: hasRoom ? 'active' : 'requested',
-        grantedAt: hasRoom ? grantedAt : null,
-        lastUsedAt: hasRoom ? grantedAt : null,
+        status: "active",
+        grantedAt,
+        lastUsedAt: grantedAt,
       };
-      const created = await this.repo.licenses.insert(license);
-      poolLicenses.push(created); // next seat in this batch sees the pool fill
-
-      if (hasRoom) {
-        licenses.push(created);
-      } else if (app) {
-        deferred.push({appId, appName: app.name});
-      }
+      licenses.push(await this.repo.licenses.insert(license));
     }
 
-    return {tasks, licenses, deferred};
+    return { tasks, licenses };
+  }
+
+  // ---- Read models --------------------------------------------------------
+
+  /** Every template with its template tasks attached, for the editor UI. */
+  async listWithTasks(): Promise<TemplateWithTasks[]> {
+    const [templates, templateTasks] = await Promise.all([
+      this.repo.templates.list(),
+      this.repo.templateTasks.list(),
+    ]);
+    return templates
+      .map((template) => ({
+        ...template,
+        tasks: templateTasks.filter((t) => t.templateId === template.id),
+      }))
+      .sort((a, b) => a.roleName.localeCompare(b.roleName));
+  }
+
+  /** One template with its tasks, or null if the id is unknown. */
+  async getWithTasks(templateId: string): Promise<TemplateWithTasks | null> {
+    const template = await this.repo.templates.get(templateId);
+    if (!template) return null;
+    const tasks = await this.repo.templateTasks.where(
+      (t) => t.templateId === templateId,
+    );
+    return { ...template, tasks };
+  }
+
+  // ---- Mutations ----------------------------------------------------------
+
+  /**
+   * Create a new role template. Role names are unique (case-insensitive) so a
+   * hire's `roleName` maps to exactly one template.
+   */
+  async createTemplate(roleName: string): Promise<Template> {
+    const name = roleName.trim();
+    if (!name) throw new Error("roleName is required");
+
+    const existing = await this.repo.templates.where(
+      (t) => t.roleName.toLowerCase() === name.toLowerCase(),
+    );
+    if (existing.length > 0) {
+      throw new Error(`A template for "${name}" already exists`);
+    }
+
+    return this.repo.templates.insert({ id: this.nextId(), roleName: name });
+  }
+
+  /** Add a task to a template. Validates the app id when the task grants a seat. */
+  async addTask(
+    templateId: string,
+    input: TemplateTaskInput,
+  ): Promise<TemplateTask> {
+    const template = await this.repo.templates.get(templateId);
+    if (!template) throw new Error(`Template "${templateId}" not found`);
+
+    const task: TemplateTask = {
+      id: this.nextId(),
+      templateId,
+      ...(await this.normalizeTaskInput(input)),
+    };
+    return this.repo.templateTasks.insert(task);
+  }
+
+  /** Edit an existing template task's fields. */
+  async updateTask(
+    taskId: string,
+    input: Partial<TemplateTaskInput>,
+  ): Promise<TemplateTask> {
+    const existing = await this.repo.templateTasks.get(taskId);
+    if (!existing) throw new Error(`Template task "${taskId}" not found`);
+
+    const merged = await this.normalizeTaskInput({
+      title: input.title ?? existing.title,
+      ownerTeam: input.ownerTeam ?? existing.ownerTeam,
+      cost: input.cost ?? existing.cost,
+      costType: input.costType ?? existing.costType,
+      appId: input.appId === undefined ? existing.appId : input.appId,
+    });
+    return this.repo.templateTasks.update(taskId, merged);
+  }
+
+  /** Remove a template task. */
+  async removeTask(taskId: string): Promise<void> {
+    const existing = await this.repo.templateTasks.get(taskId);
+    if (!existing) throw new Error(`Template task "${taskId}" not found`);
+    await this.repo.templateTasks.remove(taskId);
   }
 
   /**
-   * Create a brand-new role template from a role name, a list of plain task
-   * titles, and a list of seat app ids. Persists one `template` row plus a
-   * `template_task` per task + per seat:
-   *   - each plain title becomes a `none`-cost task (owner inferred from the
-   *     title; defaults to IT),
-   *   - each seat app becomes a recurring "Grant <App> seat" task carrying the
-   *     app's monthly cost, so the ledger stays correct when it's instantiated.
-   *
-   * Rejects a duplicate roleName so templates stay 1:1 with a role (the import
-   * flow looks a template up by roleName).
+   * Validate + default a task input into the stored shape. A task that grants a
+   * seat (`appId` set) must reference a real catalog app; a `none` cost type
+   * forces the cost to 0 so the ledger never sees a phantom charge.
    */
-  async createTemplate(input: {
-    roleName: string;
-    taskTitles: string[];
-    seatAppIds: string[];
-  }): Promise<{template: Template; templateTasks: TemplateTask[]}> {
-    const roleName = input.roleName.trim();
-    if (!roleName) throw new Error('Template roleName is required');
+  private async normalizeTaskInput(
+    input: TemplateTaskInput,
+  ): Promise<Omit<TemplateTask, "id" | "templateId">> {
+    const title = input.title.trim();
+    if (!title) throw new Error("title is required");
 
-    const existing = await this.repo.templates.where(
-      (t) => t.roleName.toLowerCase() === roleName.toLowerCase(),
-    );
-    if (existing.length > 0) {
-      throw new Error(`A template for "${roleName}" already exists`);
-    }
-
-    const template = await this.repo.templates.insert({
-      id: this.nextId(),
-      roleName,
-    });
-
-    const created: TemplateTask[] = [];
-
-    // Plain admin/hardware tasks (no app, no recurring cost by default).
-    for (const rawTitle of input.taskTitles) {
-      const title = rawTitle.trim();
-      if (!title) continue;
-      const tt = await this.repo.templateTasks.insert({
-        id: this.nextId(),
-        templateId: template.id,
-        title,
-        ownerTeam: inferOwnerTeam(title),
-        cost: 0,
-        costType: 'none',
-        appId: null,
-      });
-      created.push(tt);
-    }
-
-    // One "Grant <App> seat" recurring task per requested seat.
-    for (const appId of input.seatAppIds) {
+    const appId = input.appId ?? null;
+    if (appId) {
       const app = await this.repo.appCatalog.get(appId);
-      if (!app) continue;
-      const monthly = monthlyCost(app.costPerSeat, app.billing);
-      const tt = await this.repo.templateTasks.insert({
-        id: this.nextId(),
-        templateId: template.id,
-        title: `Grant ${app.name} seat`,
-        ownerTeam: 'it',
-        cost: monthly,
-        costType: 'recurring',
-        appId: app.id,
-      });
-      created.push(tt);
+      if (!app) throw new Error(`Unknown app "${appId}"`);
     }
 
-    return {template, templateTasks: created};
-  }
-}
+    const costType: CostType = input.costType ?? "none";
+    const cost = costType === "none" ? 0 : Math.max(0, input.cost ?? 0);
 
-/** Infer the owning team from a task title keyword; defaults to IT. */
-function inferOwnerTeam(title: string): Team {
-  const t = title.toLowerCase();
-  if (/\b(laptop|monitor|headset|phone|hardware|ship|order)\b/.test(t)) {
-    return 'vendor';
+    return { title, ownerTeam: input.ownerTeam, cost, costType, appId };
   }
-  if (/\b(badge|desk|building|office|facilit)\b/.test(t)) return 'facilities';
-  if (/\b(paperwork|benefits|offer|hr|payroll|i-9|w-?4)\b/.test(t)) return 'hr';
-  return 'it';
 }

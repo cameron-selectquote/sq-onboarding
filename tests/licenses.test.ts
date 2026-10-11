@@ -4,12 +4,12 @@ import { LicenseService } from "@/lib/licenses";
 import { sequentialIdGenerator } from "@/lib/ids";
 import type { AppCatalogItem, Budget, License } from "@/lib/types";
 
-async function setup(opts: { seatsOwned?: number } = {}) {
+async function setup() {
   const repo = createMemoryRepository();
   const ledger = new LedgerService(repo, { idGenerator: sequentialIdGenerator("led") });
   const licenses = new LicenseService(repo, ledger, { idGenerator: sequentialIdGenerator("lic") });
 
-  const app: AppCatalogItem = { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly", seatsOwned: opts.seatsOwned ?? 100, seatsInUseBaseline: 0 };
+  const app: AppCatalogItem = { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 };
   await repo.appCatalog.insert(app);
 
   const budget: Budget = { id: "b_it", team: "it", period: "2026-Q1", limit: 1000, spent: 0 };
@@ -89,53 +89,5 @@ describe("LicenseService.assign", () => {
     const { licenses } = await setup();
     await expect(licenses.assign("nope", "github")).rejects.toThrow(/Hire .* not found/);
     await expect(licenses.assign("h1", "nope")).rejects.toThrow(/App .* not found/);
-  });
-
-  it("refuses to assign when the owned-seat pool is exhausted", async () => {
-    // 1 seat owned, and the pre-seeded idle license already consumes it.
-    const { repo, licenses } = await setup({ seatsOwned: 1 });
-
-    await expect(licenses.assign("h1", "github")).rejects.toThrow(/No GitHub seats available/);
-
-    // nothing created, no ledger movement
-    expect((await repo.licenses.list()).length).toBe(1);
-    expect((await repo.ledgerEntries.list()).length).toBe(0);
-    expect((await repo.budgets.get("b_it"))!.spent).toBe(0);
-  });
-});
-
-describe("LicenseService.grant — capacity", () => {
-  it("refuses to grant a requested seat into a now-full pool", async () => {
-    // 1 seat owned; the pre-seeded idle license (l1) already consumes it.
-    const { repo, licenses } = await setup({ seatsOwned: 1 });
-
-    // A seat requested while there was room, now waiting in the queue.
-    await repo.licenses.insert({
-      id: "req1", hireId: "h1", appId: "github",
-      status: "requested", grantedAt: null, lastUsedAt: null,
-    });
-
-    await expect(licenses.grant("req1")).rejects.toThrow(/No GitHub seats available/);
-
-    // license stays requested, no ledger entry, budget untouched
-    expect((await repo.licenses.get("req1"))!.status).toBe("requested");
-    expect((await repo.ledgerEntries.list()).length).toBe(0);
-    expect((await repo.budgets.get("b_it"))!.spent).toBe(0);
-  });
-
-  it("grants a requested seat when the pool has room", async () => {
-    const { repo, licenses } = await setup({ seatsOwned: 100 });
-
-    await repo.licenses.insert({
-      id: "req1", hireId: "h1", appId: "github",
-      status: "requested", grantedAt: null, lastUsedAt: null,
-    });
-
-    const result = await licenses.grant("req1");
-    expect(result.status).toBe("active");
-
-    const entries = await repo.ledgerEntries.list();
-    expect(entries.some((e) => e.type === "license_grant" && e.refId === "req1")).toBe(true);
-    expect((await repo.budgets.get("b_it"))!.spent).toBe(21);
   });
 });
