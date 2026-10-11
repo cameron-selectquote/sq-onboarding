@@ -122,7 +122,6 @@ Available endpoints: `POST /api/hires/import`, `GET /api/hires`,
 `GET /api/openapi`, `POST /api/ai/match-template`, `GET /api/genie`,
 `POST /api/genie`.
 
-<<<<<<< HEAD
 ### Resetting the seed data (dev only)
 
 The store persists to a SQLite file, so a demo run leaves it dirty. To get back

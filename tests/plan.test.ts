@@ -13,10 +13,10 @@ import {
 import type { AppCatalogItem } from "@/lib/types";
 
 const apps: AppCatalogItem[] = [
-  { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly" },
-  { id: "slack", name: "Slack", category: "comms", costPerSeat: 8, billing: "monthly" },
-  { id: "gsuite", name: "Google Workspace", category: "docs", costPerSeat: 12, billing: "monthly" },
-  { id: "figma", name: "Figma", category: "design", costPerSeat: 15, billing: "monthly" },
+  { id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 },
+  { id: "slack", name: "Slack", category: "comms", costPerSeat: 8, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 },
+  { id: "gsuite", name: "Google Workspace", category: "docs", costPerSeat: 12, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 },
+  { id: "figma", name: "Figma", category: "design", costPerSeat: 15, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 },
 ];
 
 const base = newPlan({

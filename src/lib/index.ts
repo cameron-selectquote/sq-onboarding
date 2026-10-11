@@ -13,6 +13,7 @@ export * from './ids';
 export * from './ledger';
 export * from './finance';
 export * from './reclaim';
+export * from './seats';
 export * from './progress';
 export * from './templates';
 export * from './licenses';

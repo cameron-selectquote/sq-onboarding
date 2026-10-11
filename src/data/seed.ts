@@ -86,6 +86,7 @@ function seedTasks(
         status: statuses[i] ?? 'todo',
         cost: tt.cost,
         costType: tt.costType,
+        appId: tt.appId ?? null,
       }));
   });
 }
@@ -148,11 +149,14 @@ export const seedData: SeedData = {
 
   appCatalog: [
     {
+      // Fully allocated: baseline 248 + 2 onboarding licenses = 250 / 250.
       id: 'github',
       name: 'GitHub',
       category: 'dev',
       costPerSeat: 21,
       billing: 'monthly',
+      seatsOwned: 250,
+      seatsInUseBaseline: 248,
     },
     {
       id: 'gitlab',
@@ -160,6 +164,8 @@ export const seedData: SeedData = {
       category: 'dev',
       costPerSeat: 19,
       billing: 'monthly',
+      seatsOwned: 100,
+      seatsInUseBaseline: 60,
     },
     {
       id: 'slack',
@@ -167,6 +173,8 @@ export const seedData: SeedData = {
       category: 'comms',
       costPerSeat: 8,
       billing: 'monthly',
+      seatsOwned: 500,
+      seatsInUseBaseline: 410,
     },
     {
       id: 'jira',
@@ -174,13 +182,18 @@ export const seedData: SeedData = {
       category: 'pm',
       costPerSeat: 14,
       billing: 'monthly',
+      seatsOwned: 200,
+      seatsInUseBaseline: 120,
     },
     {
+      // Fully allocated: baseline 79 + 1 onboarding license = 80 / 80.
       id: 'figma',
       name: 'Figma',
       category: 'design',
       costPerSeat: 15,
       billing: 'monthly',
+      seatsOwned: 80,
+      seatsInUseBaseline: 79,
     },
     {
       id: 'notion',
@@ -188,6 +201,8 @@ export const seedData: SeedData = {
       category: 'docs',
       costPerSeat: 10,
       billing: 'monthly',
+      seatsOwned: 300,
+      seatsInUseBaseline: 210,
     },
     {
       id: 'zoom',
@@ -195,6 +210,8 @@ export const seedData: SeedData = {
       category: 'comms',
       costPerSeat: 180,
       billing: 'annual',
+      seatsOwned: 150,
+      seatsInUseBaseline: 95,
     },
     {
       id: 'gsuite',
@@ -202,6 +219,8 @@ export const seedData: SeedData = {
       category: 'docs',
       costPerSeat: 12,
       billing: 'monthly',
+      seatsOwned: 500,
+      seatsInUseBaseline: 440,
     },
     {
       id: '1password',
@@ -209,6 +228,17 @@ export const seedData: SeedData = {
       category: 'security',
       costPerSeat: 8,
       billing: 'monthly',
+      seatsOwned: 500,
+      seatsInUseBaseline: 455,
+    },
+    {
+      id: 'awsworkspace',
+      name: 'Amazon WorkSpaces',
+      category: 'vdi',
+      costPerSeat: 35,
+      billing: 'monthly',
+      seatsOwned: 1000,
+      seatsInUseBaseline: 820,
     },
   ],
 
@@ -333,6 +363,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 0,
       costType: 'none',
+      appId: null,
     },
     {
       id: 'tt_swe_2',
@@ -341,6 +372,7 @@ export const seedData: SeedData = {
       ownerTeam: 'vendor',
       cost: 2800,
       costType: 'one_time',
+      appId: null,
     },
     {
       id: 'tt_swe_3',
@@ -349,6 +381,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 21,
       costType: 'recurring',
+      appId: 'github',
     },
     {
       id: 'tt_swe_4',
@@ -357,6 +390,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 8,
       costType: 'recurring',
+      appId: 'slack',
     },
     {
       id: 'tt_swe_5',
@@ -365,6 +399,7 @@ export const seedData: SeedData = {
       ownerTeam: 'facilities',
       cost: 25,
       costType: 'one_time',
+      appId: null,
     },
     // Designer
     {
@@ -374,6 +409,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 0,
       costType: 'none',
+      appId: null,
     },
     {
       id: 'tt_des_2',
@@ -382,6 +418,7 @@ export const seedData: SeedData = {
       ownerTeam: 'vendor',
       cost: 2800,
       costType: 'one_time',
+      appId: null,
     },
     {
       id: 'tt_des_3',
@@ -390,6 +427,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 15,
       costType: 'recurring',
+      appId: 'figma',
     },
     {
       id: 'tt_des_4',
@@ -398,6 +436,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 8,
       costType: 'recurring',
+      appId: 'slack',
     },
     // Operations
     {
@@ -407,6 +446,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 0,
       costType: 'none',
+      appId: null,
     },
     {
       id: 'tt_ops_2',
@@ -415,6 +455,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 10,
       costType: 'recurring',
+      appId: 'notion',
     },
     {
       id: 'tt_ops_3',
@@ -423,6 +464,7 @@ export const seedData: SeedData = {
       ownerTeam: 'facilities',
       cost: 25,
       costType: 'one_time',
+      appId: null,
     },
   ],
 
@@ -487,8 +529,8 @@ export const seedData: SeedData = {
   tasks: [], // filled from templates below
 
   // Live burn plus something to reclaim: an idle seat, a seat marked for
-  // reclaim, a stale active seat, and a duplicate comms app. Revoked seats with
-  // no grantedAt are requested-but-not-granted — IT grants them from the queue.
+  // reclaim, a stale active seat, and a duplicate comms app. `requested` seats
+  // are asked-for-but-not-granted — IT grants them from the "Seats waiting" queue.
   licenses: [
     {
       id: 'lic_1',
@@ -558,7 +600,7 @@ export const seedData: SeedData = {
       id: 'lic_9',
       hireId: 'hire_4',
       appId: 'gsuite',
-      status: 'revoked',
+      status: 'requested',
       grantedAt: null,
       lastUsedAt: null,
     },
@@ -566,7 +608,7 @@ export const seedData: SeedData = {
       id: 'lic_10',
       hireId: 'hire_5',
       appId: 'github',
-      status: 'revoked',
+      status: 'requested',
       grantedAt: null,
       lastUsedAt: null,
     },
@@ -574,7 +616,7 @@ export const seedData: SeedData = {
       id: 'lic_11',
       hireId: 'hire_5',
       appId: 'slack',
-      status: 'revoked',
+      status: 'requested',
       grantedAt: null,
       lastUsedAt: null,
     },

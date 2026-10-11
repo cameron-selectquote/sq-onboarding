@@ -195,7 +195,7 @@ export class OnboardingExecutor {
         id: this.nextSerial(),
         hireId,
         appId,
-        status: 'revoked',
+        status: 'requested',
         grantedAt: null,
         lastUsedAt: null,
       });
