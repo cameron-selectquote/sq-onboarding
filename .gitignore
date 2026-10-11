@@ -38,3 +38,6 @@ next-env.d.ts
 /data/*.sqlite-*
 .vercel
 .env*
+
+# workflow agent artifacts (findings/review reports)
+/.agents/
