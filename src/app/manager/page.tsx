@@ -1,7 +1,7 @@
 import { getServices } from "@/server/store";
 import { hireProgress } from "@/lib/progress";
 import { PageHead, Shell } from "../_components/Shell";
-import { DoubleClickCard } from "../_components/actions";
+import { ClickCard } from "../_components/actions";
 import { shortDate } from "../_components/format";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,8 @@ export default async function Manager() {
       <PageHead eyebrow={`Team ${manager?.name.split(" ")[0] ?? ""}`} title={`${WORDS[cards.length] ?? `${cards.length} people`} on the way`} />
       <div className="hire-grid">
         {cards.map(({ hire, progress }) => (
-          <DoubleClickCard key={hire.id} href={`/manager/${hire.id}`}>
-            <article className="hire-card" title="Double-click to see tasks">
+          <ClickCard key={hire.id} href={`/manager/${hire.id}`}>
+            <article className="hire-card" title="Click to see tasks">
               <div
                 className="ring"
                 role="img"
@@ -47,7 +47,7 @@ export default async function Manager() {
                 </div>
               </div>
             </article>
-          </DoubleClickCard>
+          </ClickCard>
         ))}
       </div>
     </Shell>
