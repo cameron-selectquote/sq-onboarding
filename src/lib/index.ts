@@ -21,4 +21,5 @@ export * from './assets';
 export * from './candidates';
 export * from './plan';
 export * from './onboarding';
+export * from './offboarding';
 export * from './ai';

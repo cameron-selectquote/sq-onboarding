@@ -28,6 +28,10 @@ export const openApiSpec = {
     { name: "Finance", description: "Cost-per-hire, burn, budgets" },
     { name: "Reclaim", description: "Recoverable spend report" },
     { name: "AI", description: "Template matching + welcome-brief drafting" },
+    {
+      name: "Dev",
+      description: "Dev-only tooling. Not available in production builds.",
+    },
   ],
   paths: {
     "/api/hires": {
@@ -537,6 +541,57 @@ export const openApiSpec = {
           },
           "404": {
             description: "Hire not found",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/dev/reset": {
+      post: {
+        tags: ["Dev"],
+        summary: "Reset the store to the seeded baseline (dev only)",
+        description:
+          "Wipes every collection and reloads the committed seed, returning " +
+          "the data to its first-boot baseline (red reclaim banner). Handy for " +
+          "re-running the demo from a clean slate without restarting the " +
+          "server. Refused with 404 when `NODE_ENV=production`, so it can't " +
+          "touch real data.",
+        responses: {
+          "200": {
+            description: "Store reset and reseeded",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    ok: { type: "boolean" },
+                    reseeded: { type: "boolean" },
+                    counts: {
+                      type: "object",
+                      additionalProperties: { type: "integer" },
+                      description: "Row count per collection after reseed",
+                    },
+                  },
+                },
+                example: {
+                  ok: true,
+                  reseeded: true,
+                  counts: {
+                    companies: 1,
+                    hires: 6,
+                    licenses: 11,
+                    assets: 7,
+                  },
+                },
+              },
+            },
+          },
+          "404": {
+            description: "Not available (production build)",
             content: {
               "application/json": {
                 schema: { $ref: "#/components/schemas/Error" },

@@ -21,6 +21,21 @@ cp -R .next/static .next/standalone/.next/static
 
 rsync -az --delete .next/standalone/ "$REMOTE:$DEST/"
 
+# Runtime env for node.service (loaded via EnvironmentFile=, see
+# server-setup.sh). CI is the source of truth: the file is rebuilt from these
+# vars on every deploy, so manual edits on the box are overwritten. Unset/empty
+# vars are omitted. Piped over stdin (not argv) so secrets never show in `ps`.
+RUNTIME_ENV_VARS=(AWS_BEARER_TOKEN_BEDROCK AWS_REGION GENIE_MODEL_ID GENIE_DEBUG)
+render_env() {
+  local name
+  for name in "${RUNTIME_ENV_VARS[@]}"; do
+    if [[ -n "${!name:-}" ]]; then printf '%s=%s\n' "$name" "${!name}"; fi
+  done
+}
+render_env | ssh "$REMOTE" "umask 077 && cat > $ROOT/env.tmp && mv -f $ROOT/env.tmp $ROOT/env"
+# Log names only, never values.
+echo "Wrote runtime env: $(render_env | cut -d= -f1 | tr '\n' ' ')"
+
 # Switch `current`, remembering the previous release for rollback.
 PREV=$(ssh "$REMOTE" "set -e
   prev=\$(readlink -f $ROOT/current || true)

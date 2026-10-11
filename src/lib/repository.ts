@@ -34,6 +34,8 @@ export interface Collection<T extends {id: string}> {
   remove(id: string): Promise<void>;
   /** Convenience filter over the full list. */
   where(predicate: (record: T) => boolean): Promise<T[]>;
+  /** Delete every record in this collection. */
+  clear(): Promise<void>;
 }
 
 export interface Repository {
@@ -51,4 +53,10 @@ export interface Repository {
   ledgerEntries: Collection<LedgerEntry>;
   notifications: Collection<Notification>;
   candidates: Collection<Candidate>;
+  /**
+   * Delete every record in every collection, returning the store to an empty
+   * state. Reseeding is a separate step (see `loadSeed`). Intended for dev/test
+   * resets, not production use.
+   */
+  reset(): Promise<void>;
 }

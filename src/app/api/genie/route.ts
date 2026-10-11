@@ -25,6 +25,7 @@ export async function POST(req: Request) {
     history?: {role: 'user' | 'genie'; text: string}[];
     confirmedCandidateId?: string | null;
     plan?: unknown;
+    offboard?: unknown;
   };
   if (!body.message || !body.message.trim()) {
     return NextResponse.json({error: 'message is required'}, {status: 400});
@@ -34,8 +35,9 @@ export async function POST(req: Request) {
       message: body.message,
       history: Array.isArray(body.history) ? body.history : [],
       confirmedCandidateId: body.confirmedCandidateId ?? null,
-      // The client round-trips the pending plan across turns.
+      // The client round-trips the pending plan + offboard state across turns.
       plan: (body.plan as GenieTurnInput['plan']) ?? null,
+      offboard: (body.offboard as GenieTurnInput['offboard']) ?? null,
     });
     return NextResponse.json(reply);
   } catch (err) {
