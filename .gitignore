@@ -38,3 +38,6 @@ next-env.d.ts
 /data/*.sqlite-*
 .vercel
 .env*
+
+# ...but keep the committed template (no secrets, documents required vars)
+!.env.example
