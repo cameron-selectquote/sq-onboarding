@@ -25,6 +25,7 @@ import {AssetService} from '@/lib/assets';
 import {TemplateService} from '@/lib/templates';
 import {CandidateService} from '@/lib/candidates';
 import {OnboardingExecutor} from '@/lib/onboarding';
+import {OffboardingService} from '@/lib/offboarding';
 import {MockAiClient} from '@/lib/ai';
 import type {Repository} from '@/lib/repository';
 import type {AiClient} from '@/lib/ai';
@@ -38,6 +39,7 @@ interface Services {
   templates: TemplateService;
   candidates: CandidateService;
   onboarding: OnboardingExecutor;
+  offboarding: OffboardingService;
   ai: AiClient;
 }
 
@@ -78,6 +80,7 @@ function build(): {services: Services; repo: SqliteRepository} {
       templates,
       candidates: new CandidateService(repo, templates),
       onboarding: new OnboardingExecutor(repo, licenses, assets),
+      offboarding: new OffboardingService(repo, licenses, assets),
       ai: new MockAiClient(),
     },
   };
