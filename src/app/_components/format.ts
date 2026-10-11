@@ -4,7 +4,7 @@ import type { HireStatus } from "@/lib/progress";
 const TEAM_LABEL: Record<Team, string> = {
   hr: "HR",
   it: "IT",
-  vendor: "Vendor",
+  vendor: "Hardware",
   facilities: "Facilities",
   finance: "Finance",
 };
