@@ -4,7 +4,6 @@ import type { Hire } from "@/lib/types";
 import { Avatar, PageHead, SegLinks, Shell } from "../_components/Shell";
 import { ClickCard } from "../_components/actions";
 import { isTeam, shortDate, teamLabel } from "../_components/format";
-import { SPECIALIST_NAV } from "./nav";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +33,7 @@ export default async function SpecialistBoard({ searchParams }: { searchParams: 
   const cohorts = [...new Set(hires.map((h) => h.cohort).filter(Boolean))].join(", ");
 
   return (
-    <Shell nav={SPECIALIST_NAV} active="/specialist" who="Specialist · HR">
+    <Shell active="/specialist">
       <PageHead eyebrow={`${cohorts || "All"} cohort · ${hires.length} hires`} title="Onboarding board">
         <SegLinks
           active={isTeam(team) ? `/specialist?team=${team}` : "/specialist"}

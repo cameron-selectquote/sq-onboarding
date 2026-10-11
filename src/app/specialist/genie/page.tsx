@@ -1,7 +1,6 @@
 import {getServices} from '@/server/store';
 import {PageHead, Shell} from '../../_components/Shell';
 import {GenieChat} from '../../_components/genie';
-import {SPECIALIST_NAV} from '../nav';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,12 +26,7 @@ export default async function GeniePage({
   }
 
   return (
-    <Shell
-      nav={SPECIALIST_NAV}
-      active='/specialist/genie'
-      who='Specialist · HR'
-      fill
-    >
+    <Shell active='/specialist/genie' fill>
       <PageHead eyebrow='AI · Strands Agents' title='Genie' />
       {/* key on the candidate so switching candidates starts a fresh chat */}
       <GenieChat key={candidate ?? 'blank'} initialName={initialName} />

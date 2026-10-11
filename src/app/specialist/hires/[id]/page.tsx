@@ -12,7 +12,6 @@ import {
   teamLabel,
   teamTag,
 } from "../../../_components/format";
-import { SPECIALIST_NAV } from "../../nav";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +29,7 @@ export default async function HireDetail({ params }: { params: Promise<{ id: str
   const progress = hireProgress(tasks);
 
   return (
-    <Shell nav={SPECIALIST_NAV} active="/specialist/hires" who="Specialist · HR">
+    <Shell active="/specialist/hires">
       <PageHead eyebrow={`Starts ${longDate(hire.startDate)}`} title={hire.name}>
         <span className={hireStatusPill(status)}>{hireStatusLabel(status)}</span>
       </PageHead>

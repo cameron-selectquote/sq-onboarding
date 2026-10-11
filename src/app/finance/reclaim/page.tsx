@@ -4,7 +4,6 @@ import { costPerHire } from "@/lib/finance";
 import { Meter, Shell } from "../../_components/Shell";
 import { LicenseButton } from "../../_components/actions";
 import { money } from "../../_components/format";
-import { FINANCE_NAV } from "../nav";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +33,7 @@ export default async function FinanceReclaim() {
   const maxRole = roleCosts[0]?.avg ?? 0;
 
   return (
-    <Shell nav={FINANCE_NAV} active="/finance/reclaim" who="Finance">
+    <Shell active="/finance/reclaim">
       <div className="banner">
         <div className="banner-text">
           <span style={{ fontSize: 13 }}>Recoverable right now</span>
