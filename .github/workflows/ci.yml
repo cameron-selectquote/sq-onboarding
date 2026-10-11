@@ -60,20 +60,30 @@ jobs:
       group: deploy-prod
       cancel-in-progress: false
     env:
-      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
       PROD_URL: ${{ vars.PROD_URL }}
+      RELEASE: ${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
-      - run: npx --yes vercel@63.1.2 pull --yes --environment=production --token="$VERCEL_TOKEN"
-      - run: npx --yes vercel@63.1.2 build --prod --token="$VERCEL_TOKEN"
-      - run: npx --yes vercel@63.1.2 deploy --prebuilt --prod --token="$VERCEL_TOKEN"
-      - name: Smoke test production
+      - run: npm ci
+      - run: npm run build
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
-          test -n "$PROD_URL" || { echo "::error::Set the PROD_URL repo variable"; exit 1; }
-          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors "$PROD_URL/api/hires" > /dev/null
+          test -n "$DEPLOY_HOST" -a -n "$PROD_URL" -a -n "$DEPLOY_KNOWN_HOSTS" -a -n "$DEPLOY_SSH_KEY" \
+            || { echo "::error::Set DEPLOY_SSH_KEY, DEPLOY_HOST, DEPLOY_KNOWN_HOSTS, PROD_URL in the Production environment"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      # Uploads the standalone build, switches the `current` symlink, restarts
+      # node.service, smoke-tests $PROD_URL/api/hires, and rolls back on failure.
+      - name: Deploy to Akamai
+        timeout-minutes: 5
+        run: scripts/deploy.sh
