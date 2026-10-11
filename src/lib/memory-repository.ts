@@ -63,6 +63,10 @@ class MemoryCollection<T extends {id: string}> implements Collection<T> {
   async where(predicate: (record: T) => boolean): Promise<T[]> {
     return [...this.store.values()].filter(predicate).map(clone);
   }
+
+  async clear(): Promise<void> {
+    this.store.clear();
+  }
 }
 
 /** Defensive copy so callers can't mutate stored records by reference. */
@@ -88,6 +92,15 @@ export class MemoryRepository implements Repository {
   ledgerEntries = new MemoryCollection<LedgerEntry>();
   notifications = new MemoryCollection<Notification>();
   candidates = new MemoryCollection<Candidate>();
+
+  /** Empty every collection. Covers any collection on this repo generically. */
+  async reset(): Promise<void> {
+    const collections = Object.values(this).filter(
+      (value): value is MemoryCollection<{id: string}> =>
+        value instanceof MemoryCollection,
+    );
+    for (const collection of collections) await collection.clear();
+  }
 }
 
 /** Factory kept separate so callers depend on the interface, not the class. */

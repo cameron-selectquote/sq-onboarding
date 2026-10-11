@@ -131,3 +131,49 @@ export async function getServices(): Promise<Services> {
   await globalForStore.__provisionSeeded;
   return svc;
 }
+
+/** Per-collection row count after a reseed. */
+export interface ResetSummary {
+  ok: true;
+  reseeded: true;
+  counts: Record<string, number>;
+}
+
+/**
+ * Dev-only: wipe the store and reload the committed seed (plus optional
+ * backdated history), returning it to its first-boot baseline. Operates on the
+ * live shared repo in place, so every route sees the reseeded data. The
+ * `__provisionSeeded` promise is reset to the reseed so a concurrent
+ * `getServices()` awaits the fresh load, not a stale resolved one.
+ *
+ * Not for production — the API route guards on NODE_ENV.
+ */
+export async function resetStore(): Promise<ResetSummary> {
+  const svc = await getServices();
+  const reseed = (async () => {
+    await svc.repo.reset();
+    await loadSeed(svc.repo);
+    await loadOptionalHistory(svc.repo);
+  })();
+  globalForStore.__provisionSeeded = reseed;
+  await reseed;
+  return {ok: true, reseeded: true, counts: await collectionCounts(svc.repo)};
+}
+
+/** Row count per collection, keyed by collection name, for the reset summary. */
+async function collectionCounts(
+  repo: Repository,
+): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const [name, value] of Object.entries(repo)) {
+    if (
+      value &&
+      typeof (value as {list?: unknown}).list === 'function' &&
+      name !== 'reset'
+    ) {
+      const rows = await (value as {list(): Promise<unknown[]>}).list();
+      counts[name] = rows.length;
+    }
+  }
+  return counts;
+}
