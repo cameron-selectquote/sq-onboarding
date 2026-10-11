@@ -1,17 +1,14 @@
 /**
  * Role-view access policy (role-views spec, AC #5).
  *
- * First pass has no real auth: the current persona comes from a role selector
- * (stored in a cookie). This module is the single place that decides which
- * persona may open which view, so Supabase auth can later swap the persona
- * source without touching the rules.
+ * The current persona comes from the signed demo session (see session.ts and
+ * src/middleware.ts). This module is the single place that decides which
+ * persona may open which view, so a real identity provider can later swap the
+ * persona source without touching the rules.
  *
  * Pure — no framework, no cookies, no network.
  */
 import type { Team } from "./types";
-
-/** Cookie the role selector writes and server pages read. */
-export const PERSONA_COOKIE = "provision_persona";
 
 export const PERSONAS = [
   "specialist",
@@ -114,4 +111,29 @@ export function canAccess(persona: Persona, view: View): boolean {
 export function homePathFor(persona: Persona): string {
   const [home] = ACCESS[persona];
   return home ? VIEW_PATHS[home] : "/";
+}
+
+/** The role view a page path belongs to, or null for shared pages (e.g. /api-docs). */
+export function viewForPath(pathname: string): View | null {
+  const views = Object.entries(VIEW_PATHS) as [View, string][];
+  const match = views.find(([, base]) => pathname === base || pathname.startsWith(`${base}/`));
+  return match ? match[0] : null;
+}
+
+/**
+ * May this persona open this page? Role views follow ACCESS; shared pages are
+ * staff-only. A new hire gets their checklist and nothing else.
+ */
+export function canOpenPath(persona: Persona, pathname: string): boolean {
+  const view = viewForPath(pathname);
+  return view ? canAccess(persona, view) : persona !== "hire";
+}
+
+/**
+ * May this persona call this API route? Staff may call any of them. A new hire
+ * may call none: the API returns costs, and the hire view must never see them.
+ * (The public auth routes are allowed before this check runs.)
+ */
+export function canCallApi(persona: Persona): boolean {
+  return persona !== "hire";
 }

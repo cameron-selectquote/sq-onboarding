@@ -9,8 +9,8 @@ export interface NavItem {
 }
 
 /**
- * Sidebar + main frame shared by every role view. There's no auth yet, so the
- * "Viewing as" card links back to the role picker at "/".
+ * Sidebar + main frame shared by every role view. The "Viewing as" card signs
+ * out, which lands back on the login / role picker.
  */
 export function Shell({
   nav,
@@ -50,11 +50,14 @@ export function Shell({
             {item.badge !== undefined && <span>{item.badge}</span>}
           </Link>
         ))}
-        <span className='side-spacer' />
-        <Link href='/' className='side-who' title='Switch role'>
-          <span>{whoLabel}</span>
-          <span>{who}</span>
-        </Link>
+        <span className="side-spacer" />
+        <form method="post" action="/api/session/logout">
+          <button type="submit" className="side-who" title="Sign out and switch role">
+            <span>{whoLabel}</span>
+            <span>{who}</span>
+            <span>Switch role</span>
+          </button>
+        </form>
       </nav>
       <main className='main'>{children}</main>
     </div>

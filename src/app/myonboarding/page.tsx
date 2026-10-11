@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getServices } from "@/server/store";
+import { currentSession } from "@/server/auth";
 import { toHireChecklist, type HireChecklist } from "@/lib/progress";
 import { Avatar, Shell } from "../_components/Shell";
 import { longDate, teamLabel } from "../_components/format";
@@ -29,7 +30,9 @@ function Check() {
 
 /** New-hire checklist (design 2i; 2h layout on narrow screens). No costs. */
 export default async function MyOnboarding({ searchParams }: { searchParams: Promise<{ hire?: string }> }) {
-  const { hire: hireId } = await searchParams;
+  // A new hire sees only their own checklist; ?hire= is for staff previews.
+  const session = await currentSession();
+  const hireId = session?.persona === "hire" ? (session.hireId ?? undefined) : (await searchParams).hire;
   const data = await loadChecklist(hireId);
   if (!data) notFound();
   const { list, managerName } = data;

@@ -129,7 +129,7 @@ Mapped to the specialties in the Feature Brief. Each person owns a vertical wher
 
 ### DevOps / AWS Architect — "foundation + glue"
 - Repo scaffold, Next.js app, CI, **deploy to a live URL** (demo must be hosted)
-- **Supabase**: schema migration, seed script, **auth + role-based access**
+- **SQlite**: schema migration, seed script, **auth + role-based access**
 - `lib/ai.ts` wrapper + wiring the event's inference endpoint/credentials
 - Realtime channel for live burn/notifications (optional, nice-to-have)
 - Owns "it runs on a real URL and nothing is localhost-only"
