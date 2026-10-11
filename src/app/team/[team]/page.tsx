@@ -184,24 +184,26 @@ export default async function TeamQueue({
         </div>
 
         <aside className="rail">
-          <section className="panel" style={{ padding: 20, gap: 12 }}>
-            <span className="panel-title" style={{ fontSize: 18 }}>
-              On hand
-            </span>
-            {onHand.length === 0 && (
-              <span className="empty">Nothing in stock.</span>
-            )}
-            {onHand.map((v) => (
-              <div
-                key={v.name}
-                className="meter-head"
-                style={{ fontSize: 14, alignItems: "center" }}
-              >
-                <span>{v.name}</span>
-                <span className="count">{v.n}</span>
-              </div>
-            ))}
-          </section>
+          {team === "vendor" && (
+            <section className="panel" style={{ padding: 20, gap: 12 }}>
+              <span className="panel-title" style={{ fontSize: 18 }}>
+                On hand
+              </span>
+              {onHand.length === 0 && (
+                <span className="empty">Nothing in stock.</span>
+              )}
+              {onHand.map((v) => (
+                <div
+                  key={v.name}
+                  className="meter-head"
+                  style={{ fontSize: 14, alignItems: "center" }}
+                >
+                  <span>{v.name}</span>
+                  <span className="count">{v.n}</span>
+                </div>
+              ))}
+            </section>
+          )}
 
           {team === "it" && (
             <section
@@ -270,7 +272,7 @@ export default async function TeamQueue({
             </section>
           )}
 
-          {(team === "vendor" || team === "facilities") && (
+          {team === "vendor" && (
             <section className="panel" style={{ padding: 20, gap: 12 }}>
               <span className="panel-title" style={{ fontSize: 18 }}>
                 Raise a PO

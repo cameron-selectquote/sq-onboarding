@@ -43,7 +43,7 @@ export const PERSONA_LABELS: Record<Persona, string> = {
   manager: "Manager",
   finance: "Finance",
   it: "IT team",
-  vendor: "Vendor team",
+  vendor: "Hardware team",
   facilities: "Facilities team",
   hire: "New hire",
 };
@@ -54,7 +54,7 @@ export const VIEW_LABELS: Record<View, string> = {
   manager: "Manager report",
   myonboarding: "My onboarding",
   "team:it": "IT queue",
-  "team:vendor": "Vendor queue",
+  "team:vendor": "Hardware queue",
   "team:facilities": "Facilities queue",
 };
 

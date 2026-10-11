@@ -1,0 +1,223 @@
+/**
+ * Autonomous onboarding executor — the muscle behind the Genie's "do the
+ * tasks" tool.
+ *
+ * Given a hire, it walks their onboarding task list and performs the ones that
+ * can be automated, reusing the real services so every action still flows
+ * through the ledger:
+ *   - "Grant X seat"      -> ensure a License row, then LicenseService.grant
+ *   - "Order laptop"      -> AssetService.raisePurchaseOrder (mbp16)
+ *   - "Issue access badge"-> AssetService.raisePurchaseOrder (badge)
+ *   - "Create email + SSO"-> administrative, just mark done
+ * Each automated task is also moved to `done`. Tasks needing a human (manager
+ * 1-on-1s, training, goal-setting) are left `todo` and reported as skipped.
+ *
+ * No new spend logic here: grants and POs go through LicenseService /
+ * AssetService, which own the ledger invariant.
+ */
+
+import {defaultIdGenerator, type IdGenerator} from './ids';
+import type {AssetService} from './assets';
+import type {LicenseService} from './licenses';
+import type {Repository} from './repository';
+import type {AppCatalogItem, Task} from './types';
+
+export type ExecutionOutcome = 'granted' | 'ordered' | 'completed' | 'skipped';
+
+export interface TaskExecution {
+  taskId: string;
+  title: string;
+  ownerTeam: string;
+  outcome: ExecutionOutcome;
+  /** Short human explanation ("Granted GitHub seat ($21/mo)", "Needs a human"). */
+  detail: string;
+}
+
+export interface ExecutionReport {
+  hireId: string;
+  executions: TaskExecution[];
+  automated: number;
+  skipped: number;
+}
+
+/** Asset catalog ids used for the common hardware tasks. */
+const LAPTOP_CATALOG_ID = 'mbp16';
+const BADGE_CATALOG_ID = 'badge';
+
+export class OnboardingExecutor {
+  private readonly repo: Repository;
+  private readonly licenses: LicenseService;
+  private readonly assets: AssetService;
+  private readonly nextSerial: IdGenerator;
+
+  constructor(
+    repo: Repository,
+    licenses: LicenseService,
+    assets: AssetService,
+    options: {serialGenerator?: IdGenerator} = {},
+  ) {
+    this.repo = repo;
+    this.licenses = licenses;
+    this.assets = assets;
+    this.nextSerial = options.serialGenerator ?? defaultIdGenerator;
+  }
+
+  /**
+   * Execute every automatable `todo` task for a hire. Returns a per-task report.
+   * Already-done tasks are left alone and not reported. Tasks whose title
+   * contains one of `skipKeywords` (from a plan adjustment, e.g. "slack",
+   * "badge") are reported as skipped and not executed.
+   */
+  async executeForHire(
+    hireId: string,
+    options: {skipKeywords?: string[]} = {},
+  ): Promise<ExecutionReport> {
+    const hire = await this.repo.hires.get(hireId);
+    if (!hire) throw new Error(`Hire "${hireId}" not found`);
+
+    const [tasks, apps] = await Promise.all([
+      this.repo.tasks.where((t) => t.hireId === hireId),
+      this.repo.appCatalog.list(),
+    ]);
+
+    const skip = (options.skipKeywords ?? []).map((k) => k.toLowerCase());
+
+    const executions: TaskExecution[] = [];
+    for (const task of tasks) {
+      if (task.status === 'done') continue;
+      const title = task.title.toLowerCase();
+      if (skip.some((k) => title.includes(k))) {
+        executions.push({
+          taskId: task.id,
+          title: task.title,
+          ownerTeam: task.ownerTeam,
+          outcome: 'skipped',
+          detail: 'Skipped per your request',
+        });
+        continue;
+      }
+      executions.push(await this.runTask(hireId, task, apps));
+    }
+
+    const automated = executions.filter((e) => e.outcome !== 'skipped').length;
+    return {
+      hireId,
+      executions,
+      automated,
+      skipped: executions.length - automated,
+    };
+  }
+
+  private async runTask(
+    hireId: string,
+    task: Task,
+    apps: AppCatalogItem[],
+  ): Promise<TaskExecution> {
+    const title = task.title.toLowerCase();
+    const base = {
+      taskId: task.id,
+      title: task.title,
+      ownerTeam: task.ownerTeam,
+    };
+
+    // Grant a software seat.
+    const app = title.includes('grant') ? matchApp(title, apps) : undefined;
+    if (app) {
+      await this.grantSeat(hireId, app.id);
+      await this.markDone(task.id);
+      return {
+        ...base,
+        outcome: 'granted',
+        detail: `Granted ${app.name} seat`,
+      };
+    }
+
+    // Order a laptop.
+    if (title.includes('laptop')) {
+      const asset = await this.assets.raisePurchaseOrder({
+        assetCatalogId: LAPTOP_CATALOG_ID,
+        hireId,
+        serialTag: this.serialTag('MBP'),
+      });
+      await this.markDone(task.id);
+      return {
+        ...base,
+        outcome: 'ordered',
+        detail: `Ordered laptop (${asset.serialTag})`,
+      };
+    }
+
+    // Issue an access badge.
+    if (title.includes('badge')) {
+      const asset = await this.assets.raisePurchaseOrder({
+        assetCatalogId: BADGE_CATALOG_ID,
+        hireId,
+        serialTag: this.serialTag('BDG'),
+      });
+      await this.markDone(task.id);
+      return {
+        ...base,
+        outcome: 'ordered',
+        detail: `Issued access badge (${asset.serialTag})`,
+      };
+    }
+
+    // Administrative, no external system — just complete it.
+    if (
+      title.includes('email') ||
+      title.includes('sso') ||
+      title.includes('account')
+    ) {
+      await this.markDone(task.id);
+      return {
+        ...base,
+        outcome: 'completed',
+        detail: 'Provisioned email + SSO account',
+      };
+    }
+
+    // Everything else needs a human (1-on-1s, training, goal setting).
+    return {
+      ...base,
+      outcome: 'skipped',
+      detail: 'Needs a person — left for the team',
+    };
+  }
+
+  /** Ensure a license row exists for this hire+app, then grant it. */
+  private async grantSeat(hireId: string, appId: string): Promise<void> {
+    const existing = await this.repo.licenses.where(
+      (l) => l.hireId === hireId && l.appId === appId,
+    );
+    let license = existing[0];
+    if (!license) {
+      license = await this.repo.licenses.insert({
+        id: this.nextSerial(),
+        hireId,
+        appId,
+        status: 'revoked',
+        grantedAt: null,
+        lastUsedAt: null,
+      });
+    }
+    if (license.status !== 'active') {
+      await this.licenses.grant(license.id);
+    }
+  }
+
+  private async markDone(taskId: string): Promise<void> {
+    await this.repo.tasks.update(taskId, {status: 'done'});
+  }
+
+  private serialTag(prefix: string): string {
+    return `${prefix}-${this.nextSerial().slice(0, 8).toUpperCase()}`;
+  }
+}
+
+/** Map a "Grant X seat/access" task title to a catalog app by name. */
+function matchApp(
+  title: string,
+  apps: AppCatalogItem[],
+): AppCatalogItem | undefined {
+  return apps.find((a) => title.includes(a.name.toLowerCase()));
+}

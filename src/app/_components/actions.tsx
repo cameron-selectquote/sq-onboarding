@@ -7,7 +7,7 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import type { TaskStatus } from "@/lib/types";
 import { money } from "./format";
 
@@ -48,6 +48,27 @@ function useMutation() {
   }
 
   return { run, pending: busy || pending, error };
+}
+
+/**
+ * Wraps board content so a double-click opens the hire detail page. Single
+ * clicks are left alone (cards aren't links); a keyboard Enter does the same.
+ */
+export function DoubleClickCard({ href, children }: { href: string; children: ReactNode }) {
+  const router = useRouter();
+  return (
+    <div
+      role="link"
+      tabIndex={0}
+      style={{ cursor: "pointer" }}
+      onDoubleClick={() => router.push(href)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") router.push(href);
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {

@@ -12,18 +12,23 @@
  * changing only this file.
  */
 
-import path from "node:path";
-import fs from "node:fs";
+import path from 'node:path';
+import fs from 'node:fs';
 
-import { createSqliteRepository, SqliteRepository } from "@/lib/sqlite-repository";
-import { LedgerService } from "@/lib/ledger";
-import { LicenseService } from "@/lib/licenses";
-import { AssetService } from "@/lib/assets";
-import { TemplateService } from "@/lib/templates";
-import { MockAiClient } from "@/lib/ai";
-import type { Repository } from "@/lib/repository";
-import type { AiClient } from "@/lib/ai";
-import { loadSeed } from "@/data/seed";
+import {
+  createSqliteRepository,
+  SqliteRepository,
+} from '@/lib/sqlite-repository';
+import {LedgerService} from '@/lib/ledger';
+import {LicenseService} from '@/lib/licenses';
+import {AssetService} from '@/lib/assets';
+import {TemplateService} from '@/lib/templates';
+import {CandidateService} from '@/lib/candidates';
+import {OnboardingExecutor} from '@/lib/onboarding';
+import {MockAiClient} from '@/lib/ai';
+import type {Repository} from '@/lib/repository';
+import type {AiClient} from '@/lib/ai';
+import {loadSeed, seedData} from '@/data/seed';
 
 interface Services {
   repo: Repository;
@@ -31,6 +36,8 @@ interface Services {
   licenses: LicenseService;
   assets: AssetService;
   templates: TemplateService;
+  candidates: CandidateService;
+  onboarding: OnboardingExecutor;
   ai: AiClient;
 }
 
@@ -44,27 +51,33 @@ const globalForStore = globalThis as unknown as {
 /** Resolve the SQLite file path, creating its parent directory if needed. */
 function resolveDbPath(): string {
   const configured = process.env.PROVISION_DB_PATH;
-  if (configured === ":memory:") return configured;
+  if (configured === ':memory:') return configured;
 
-  const file = configured
-    ? path.resolve(configured)
-    : path.join(process.cwd(), "data", "provision.sqlite");
+  const file =
+    configured ?
+      path.resolve(configured)
+    : path.join(process.cwd(), 'data', 'provision.sqlite');
 
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), {recursive: true});
   return file;
 }
 
-function build(): { services: Services; repo: SqliteRepository } {
+function build(): {services: Services; repo: SqliteRepository} {
   const repo = createSqliteRepository(resolveDbPath());
   const ledger = new LedgerService(repo);
+  const templates = new TemplateService(repo);
+  const licenses = new LicenseService(repo, ledger);
+  const assets = new AssetService(repo, ledger);
   return {
     repo,
     services: {
       repo,
       ledger,
-      licenses: new LicenseService(repo, ledger),
-      assets: new AssetService(repo, ledger),
-      templates: new TemplateService(repo),
+      licenses,
+      assets,
+      templates,
+      candidates: new CandidateService(repo, templates),
+      onboarding: new OnboardingExecutor(repo, licenses, assets),
       ai: new MockAiClient(),
     },
   };
@@ -72,15 +85,30 @@ function build(): { services: Services; repo: SqliteRepository } {
 
 function services(): Services {
   if (!globalForStore.__provisionServices) {
-    const { services: svc, repo } = build();
+    const {services: svc, repo} = build();
     globalForStore.__provisionServices = svc;
     // Seed only on a fresh store; a populated file is left as-is so data
     // survives restarts and re-seeding never collides on duplicate ids.
-    globalForStore.__provisionSeeded = repo.isEmpty()
-      ? loadSeed(svc.repo).then(() => loadOptionalHistory(svc.repo))
-      : Promise.resolve();
+    globalForStore.__provisionSeeded =
+      repo.isEmpty() ?
+        loadSeed(svc.repo).then(() => loadOptionalHistory(svc.repo))
+      : backfillCandidates(svc.repo);
   }
   return globalForStore.__provisionServices;
+}
+
+/**
+ * Candidates were added after the first-pass store shipped, so an existing DB
+ * file won't have them even though it's "not empty". Insert the seed
+ * candidates once if the table is bare, leaving every other table untouched.
+ */
+async function backfillCandidates(repo: Repository): Promise<void> {
+  const existing = await repo.candidates.list();
+  if (existing.length > 0) return;
+  for (const c of seedData.candidates) {
+    const already = await repo.candidates.get(c.id);
+    if (!already) await repo.candidates.insert(c);
+  }
 }
 
 /**
@@ -90,7 +118,7 @@ function services(): Services {
  */
 async function loadOptionalHistory(repo: Repository): Promise<void> {
   try {
-    const mod = await import("@/data/history");
+    const mod = await import('@/data/history');
     await mod.loadHistory(repo);
   } catch {
     // No history module (not committed) — fine, trends just start empty.

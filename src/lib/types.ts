@@ -7,33 +7,33 @@
 
 // ---- Enums / unions -------------------------------------------------------
 
-export type Role = "admin" | "specialist" | "manager" | "team_member" | "hire";
+export type Role = 'admin' | 'specialist' | 'manager' | 'team_member' | 'hire';
 
-export type Team = "hr" | "it" | "vendor" | "facilities" | "finance";
+export type Team = 'hr' | 'it' | 'vendor' | 'facilities' | 'finance';
 
-export type Billing = "monthly" | "annual";
+export type Billing = 'monthly' | 'annual';
 
 /** How a cost hits the ledger. */
-export type CostType = "none" | "one_time" | "recurring";
+export type CostType = 'none' | 'one_time' | 'recurring';
 
-export type TaskStatus = "todo" | "in_progress" | "review" | "blocked" | "done";
+export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'blocked' | 'done';
 
-export type LicenseStatus = "active" | "idle" | "reclaim" | "revoked";
+export type LicenseStatus = 'active' | 'idle' | 'reclaim' | 'revoked';
 
 export type AssetStatus =
-  | "in_stock"
-  | "assigned"
-  | "in_repair"
-  | "returned"
-  | "retired";
+  | 'in_stock'
+  | 'assigned'
+  | 'in_repair'
+  | 'returned'
+  | 'retired';
 
 /** What kind of thing a ledger entry represents. */
 export type LedgerEntryType =
-  | "license_grant"
-  | "license_revoke"
-  | "asset_purchase"
-  | "asset_return"
-  | "fee";
+  | 'license_grant'
+  | 'license_revoke'
+  | 'asset_purchase'
+  | 'asset_return'
+  | 'fee';
 
 // ---- Tables ---------------------------------------------------------------
 
@@ -157,4 +157,27 @@ export interface Notification {
   message: string;
   batchId: string | null;
   read: boolean;
+}
+
+/**
+ * A pre-hire record the Onboarding Genie searches by name. Publishing a plan
+ * converts a candidate into a `hire` (status -> onboarding) with instantiated
+ * tasks. Kept separate from `hire` so "found in the ATS" and "being onboarded"
+ * are distinct states.
+ */
+export type CandidateStatus = 'new' | 'onboarding';
+
+export interface Candidate {
+  id: string;
+  name: string;
+  /** Job title from the offer letter, e.g. "Senior Software Engineer". */
+  title: string;
+  /** Suggested template roleName this title maps to, if known. */
+  roleName: string | null;
+  hiringManagerId: string | null;
+  resumeFile: string | null;
+  startDate: string | null; // ISO date, if set
+  status: CandidateStatus;
+  /** Set once a plan is published and the candidate becomes a hire. */
+  hireId: string | null;
 }

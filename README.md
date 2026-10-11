@@ -18,19 +18,6 @@ SQLite file behind a swappable interface so nobody is blocked on infra.
 - **Node.js 20+**
 - **npm 10+**
 
-### npm registry (SelectQuote CodeArtifact)
-
-Dependencies install from SelectQuote's AWS CodeArtifact registry, which needs a
-short-lived token (good for ~12h). If `npm install` fails with `E401`, refresh it:
-
-```powershell
-aws sso login --profile prod
-aws codeartifact login --tool npm --domain selectquote --domain-owner 586672212047 --repository selectquote-npm --region us-west-2 --profile prod
-```
-
-The `prod` profile is the one with CodeArtifact access (account `586672212047`).
-Re-run both commands roughly once a day when the token expires.
-
 ### Native module (better-sqlite3)
 
 `npm install` pulls in `better-sqlite3`, a native module. It installs a prebuilt
@@ -75,15 +62,15 @@ $env:PROVISION_DB_PATH = ":memory:"; npm run dev   # PowerShell
 
 ## Common commands
 
-| Command | What it does |
-|---|---|
-| `npm run dev` | Dev server at `localhost:3000` (hot reload) |
-| `npm run build` | Production build — also typechecks the API routes |
-| `npm start` | Serve the production build |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Run all Jest unit tests |
-| `npm run test:watch` | Jest in watch mode |
-| `npm run test:coverage` | Tests with coverage (targets `src/lib`) |
+| Command                 | What it does                                      |
+| ----------------------- | ------------------------------------------------- |
+| `npm run dev`           | Dev server at `localhost:3000` (hot reload)       |
+| `npm run build`         | Production build — also typechecks the API routes |
+| `npm start`             | Serve the production build                        |
+| `npm run typecheck`     | `tsc --noEmit`                                    |
+| `npm test`              | Run all Jest unit tests                           |
+| `npm run test:watch`    | Jest in watch mode                                |
+| `npm run test:coverage` | Tests with coverage (targets `src/lib`)           |
 
 > On Windows PowerShell, chain commands with `;` not `&&`. Don't launch the dev
 > server from a script — run `npm run dev` in your own terminal.
@@ -114,7 +101,44 @@ Available endpoints: `POST /api/hires/import`, `GET /api/hires`,
 `POST /api/licenses/:id/grant`, `POST /api/licenses/:id/revoke`, `POST /api/pos`,
 `GET /api/assets`, `POST /api/assets/:id/return`, `GET /api/catalog`,
 `GET /api/reclaim`, `GET /api/finance/summary`, `GET /api/finance/ledger`,
-`GET /api/openapi`, `POST /api/ai/match-template`.
+`GET /api/openapi`, `POST /api/ai/match-template`, `GET /api/genie`,
+`POST /api/genie`.
+
+## Onboarding Genie (Strands Agents)
+
+The Onboarding Genie is an AI agent built on the
+[Strands Agents SDK](https://strandsagents.com) (`@strands-agents/sdk`). It
+guides HR/managers from a candidate name to a published 30-day onboarding plan.
+Find it at **`/specialist/genie`**.
+
+Two agent tools do the work (`src/server/genie.ts`):
+
+- `searchCandidateRecords` — look up pre-hire candidate records by name.
+- `createOnboardingPlan` — publish the plan: creates the hire, instantiates
+  tasks + tool seats, and returns the onboarding-portal link.
+
+**Model (Amazon Bedrock, Strands' default).** Set credentials to run the live
+agent; without them it falls back to a built-in deterministic planner that walks
+the same beats, so the demo and tests run offline. The chat badge shows which
+engine is active.
+
+```bash
+# Quickest for local dev: a Bedrock API key
+export AWS_BEARER_TOKEN_BEDROCK=...
+# or standard AWS credentials / profile with Bedrock + Claude access
+export AWS_PROFILE=my-profile
+# optional: override the model id (defaults to Claude Sonnet)
+export GENIE_MODEL_ID=global.anthropic.claude-sonnet-4-6
+```
+
+Enable model access in the Amazon Bedrock console first. Try it:
+
+```bash
+curl http://localhost:3000/api/genie            # greeting + active engine
+curl -X POST http://localhost:3000/api/genie \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Nora Alvarez"}'
+```
 
 ## Project layout
 
