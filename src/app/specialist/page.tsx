@@ -2,7 +2,7 @@ import { getServices } from "@/server/store";
 import { hireProgress, hireStatus, type HireStatus } from "@/lib/progress";
 import type { Hire } from "@/lib/types";
 import { Avatar, PageHead, SegLinks, Shell } from "../_components/Shell";
-import { DoubleClickCard } from "../_components/actions";
+import { ClickCard } from "../_components/actions";
 import { isTeam, shortDate, teamLabel } from "../_components/format";
 import { SPECIALIST_NAV } from "./nav";
 
@@ -67,8 +67,8 @@ export default async function SpecialistBoard({ searchParams }: { searchParams: 
 
 function HireCard({ hire, done, total }: { hire: Hire; done: number; total: number }) {
   return (
-    <DoubleClickCard href={`/specialist/hires/${hire.id}`}>
-      <article className="tcard" title="Double-click to open">
+    <ClickCard href={`/specialist/hires/${hire.id}`}>
+      <article className="tcard" title="Click to open">
         <div className="who">
           <Avatar name={hire.name} size="sm" />
           <div className="who-text">
@@ -81,6 +81,6 @@ function HireCard({ hire, done, total }: { hire: Hire; done: number; total: numb
           <span>{shortDate(hire.startDate)}</span>
         </div>
       </article>
-    </DoubleClickCard>
+    </ClickCard>
   );
 }
