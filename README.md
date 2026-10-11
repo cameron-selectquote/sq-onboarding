@@ -63,6 +63,10 @@ Persistence is a local **SQLite** file. There's nothing to install or configure:
 - The file persists across restarts — data you create in a session is still
   there next time. Reseeding only happens when the store is empty, so a restart
   never collides on duplicate records.
+- Schema changes are additive: on open, any column the code defines but the file
+  lacks is added (`ALTER TABLE ... ADD COLUMN`), and seed rows get the seed's
+  value for the new column. Columns are never dropped or renamed automatically;
+  for those, reset the store.
 
 To start over from a clean seed, delete the file and restart:
 

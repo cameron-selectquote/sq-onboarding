@@ -32,7 +32,7 @@ import {MockAiClient} from '@/lib/ai';
 import type {Repository} from '@/lib/repository';
 import type {AiClient, BriefBlurb, TemplateMatch} from '@/lib/ai';
 import {hasBedrockCreds} from '@/lib/bedrock';
-import {loadSeed, seedData} from '@/data/seed';
+import {backfillSeedFields, loadSeed, seedData} from '@/data/seed';
 
 /**
  * An `AiClient` that defers loading the Strands SDK until the first call.
@@ -154,9 +154,27 @@ function services(): Services {
     globalForStore.__provisionSeeded =
       repo.isEmpty() ?
         loadSeed(svc.repo).then(() => loadOptionalHistory(svc.repo))
-      : backfillCandidates(svc.repo);
+      : migrateExisting(repo);
   }
   return globalForStore.__provisionServices;
+}
+
+/**
+ * An existing DB file from an older release: ensureSchema already added any
+ * missing columns; fill those from the seed for seed rows, then add any
+ * collections that shipped after the file was created.
+ */
+async function migrateExisting(repo: SqliteRepository): Promise<void> {
+  if (repo.addedColumns.length > 0) {
+    const cols = repo.addedColumns
+      .map((c) => `${c.table}.${c.column}`)
+      .join(', ');
+    const patched = await backfillSeedFields(repo, repo.addedColumns);
+    console.info(
+      `[store] migrated DB: added ${cols}; backfilled ${patched} seed row(s)`,
+    );
+  }
+  await backfillCandidates(repo);
 }
 
 /**
