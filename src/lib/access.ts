@@ -163,7 +163,7 @@ const NAV: {title: string | null; view: View; items: NavLink[]}[] = [
       {href: '/specialist', label: 'Board'},
       {href: '/specialist/hires', label: 'Hires'},
       {href: '/specialist/templates', label: 'Templates'},
-      {href: '/specialist/genie', label: 'Genie'},
+      {href: '/specialist/genie', label: 'Sage'},
     ],
   },
   {
@@ -200,7 +200,7 @@ const NAV: {title: string | null; view: View; items: NavLink[]}[] = [
   {
     title: 'Assistant',
     view: 'genie',
-    items: [{href: '/genie', label: 'Genie'}],
+    items: [{href: '/genie', label: 'Sage'}],
   },
   {
     title: 'Developer',

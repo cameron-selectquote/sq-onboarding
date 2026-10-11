@@ -27,7 +27,7 @@ export default async function GeniePage({
 
   return (
     <Shell active='/specialist/genie' fill>
-      <PageHead eyebrow='AI · Strands Agents' title='Genie' />
+      <PageHead eyebrow='AI · Strands Agents' title='Sage' />
       {/* key on the candidate so switching candidates starts a fresh chat */}
       <GenieChat key={candidate ?? 'blank'} initialName={initialName} />
     </Shell>
