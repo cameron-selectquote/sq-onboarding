@@ -120,8 +120,8 @@ describe('sidebar nav', () => {
     }
   });
 
-  it('employee nav has home, their checklist, and Genie — no finance/admin', () => {
-    expect(hrefs('employee')).toEqual(['/home', '/myonboarding', '/genie']);
+  it('employee nav has home and their checklist (Genie is the global launcher)', () => {
+    expect(hrefs('employee')).toEqual(['/home', '/myonboarding']);
   });
 
   it('admin nav reaches every section', () => {

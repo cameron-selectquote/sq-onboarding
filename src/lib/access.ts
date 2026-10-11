@@ -154,7 +154,6 @@ const NAV: {title: string | null; view: View; items: NavLink[]}[] = [
       {href: '/specialist', label: 'Board'},
       {href: '/specialist/hires', label: 'Hires'},
       {href: '/specialist/templates', label: 'Templates'},
-      {href: '/specialist/genie', label: 'Genie'},
     ],
   },
   {
@@ -186,13 +185,9 @@ const NAV: {title: string | null; view: View; items: NavLink[]}[] = [
     view: 'myonboarding',
     items: [{href: '/myonboarding', label: 'My onboarding'}],
   },
-  // Shared, role-scoped Genie — shown to manager + employee (admin uses the
-  // onboarding Genie under /specialist/genie above).
-  {
-    title: 'Assistant',
-    view: 'genie',
-    items: [{href: '/genie', label: 'Genie'}],
-  },
+  // Genie is reached from the global launcher icon (top-right, every page), so
+  // it's intentionally not in the sidebar. The `genie` view still gates
+  // /genie + /api/genie access per role.
   {
     title: 'Developer',
     view: 'api-docs',
