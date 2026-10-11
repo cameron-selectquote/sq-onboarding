@@ -210,9 +210,11 @@ describe("buildReclaimReport — shipped seed regression guard", () => {
     //   lic_13 figma  idle      $15
     //   lic_14 jira   reclaim   $14
     //   lic_15 github idle      $21
+    //   lic_16 github idle      $21  (added so reclaim clears the overage)
+    //   lic_17 jira   idle      $14  (added so reclaim clears the overage)
     //   lic_3  zoom   duplicate $15  (Zoom annual 180/12; 2nd comms seat for hire_1)
-    // = $102/mo. Exact integer dollars -> exact assertion.
-    expect(report.recurringMonthly).toBe(8 + 8 + 21 + 15 + 14 + 21 + 15);
+    // = $137/mo. Exact integer dollars -> exact assertion.
+    expect(report.recurringMonthly).toBe(8 + 8 + 21 + 15 + 14 + 21 + 21 + 14 + 15);
 
     // One-time asset residual: the single pending_return laptop asset_mbp_3
     // (mbp16, standardCost 2800, 36-mo straight-line, acquired 2025-06-01),
