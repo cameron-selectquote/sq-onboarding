@@ -300,33 +300,47 @@ export function GenieChat({initialName}: {initialName?: string}) {
   const [helpOpen, setHelpOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Opening greeting + which engine is live. Fetched once per bundle lifetime
-  // (guarded by state.started) so navigating back doesn't wipe the chat.
+  // Opening greeting + which engine is live. We only consider the chat
+  // "started" once the greeting turn has actually landed — not merely when a
+  // fetch was kicked off. This matters because the overlay unmounts GenieChat
+  // when closed: if a mount's fetch is cancelled on unmount before it resolves,
+  // the next mount must retry rather than skip and show an empty chat.
   useEffect(() => {
-    if (state.started) return;
-    setGenieState({started: true});
+    if (state.started && state.turns.length > 0) return;
     let cancelled = false;
     fetch('/api/genie')
       .then((r) => r.json())
       .then((d: {greeting: string; engine: 'strands-bedrock' | 'scripted'}) => {
         if (cancelled) return;
+        // Don't clobber a conversation that's already in progress.
+        if (getGenieState().turns.length > 0) {
+          setGenieState({started: true, engine: d.engine});
+          return;
+        }
         setGenieState({
+          started: true,
           engine: d.engine,
           turns: [{role: 'genie', text: d.greeting, engine: d.engine}],
         });
       })
       .catch(() => {
-        if (!cancelled)
-          setGenieState({
-            turns: [
-              {role: 'genie', text: 'Hi, what can I help you with today?'},
-            ],
-          });
+        if (cancelled || getGenieState().turns.length > 0) return;
+        setGenieState({
+          started: true,
+          turns: [
+            {
+              role: 'genie',
+              text: 'Hi, I\u2019m Genie. What can I help you with today?',
+            },
+          ],
+        });
       });
     return () => {
       cancelled = true;
     };
-  }, [state.started]);
+    // Re-run if the store was reset (started back to false) or the greeting
+    // hasn't landed yet.
+  }, [state.started, state.turns.length]);
 
   // Auto-start from a candidate ("Run Genie" on the candidates page). Fires
   // once, after the greeting is on screen, so the Genie opens already focused
