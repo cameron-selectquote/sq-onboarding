@@ -79,7 +79,11 @@ export default async function FinanceOverview() {
           label="Reclaimable"
           value={money(Math.round(reclaim.monthly))}
           unit="/mo"
-          sub={`${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · ${summary.assetsOnHand} assets on hand`}
+          sub={
+            reclaim.oneTimeAsset > 0
+              ? `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · ${money(Math.round(reclaim.oneTimeAsset))} one-time asset residual`
+              : `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats`
+          }
           tone="good"
         />
       </div>

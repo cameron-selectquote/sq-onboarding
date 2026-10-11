@@ -4,8 +4,10 @@
  * Everything here is derived, never stored:
  *   - cost per hire        = sum of that hire's ledger entries
  *   - recurring burn       = sum of active license seat costs (monthly)
- *   - reclaimable          = recurring from idle/reclaim/duplicate licenses
- *                            + residual value of assets pending return
+ *   - reclaimable          = computed by the canonical reclaim engine
+ *                            (buildReclaimReport in reclaim.ts), reported as two
+ *                            unit-separated figures: recurring $/mo and the
+ *                            one-time residual $ of pending-return assets
  *   - budget burn-down     = spent / limit
  *   - assets on hand       = count of in_stock assets
  *
@@ -50,50 +52,6 @@ export function recurringMonthlyBurn(
         return app ? monthlyCost(app.costPerSeat, app.billing) : 0;
       }),
   );
-}
-
-/** License statuses that represent recoverable recurring spend. */
-const RECLAIMABLE_LICENSE_STATUSES: ReadonlySet<License["status"]> = new Set([
-  "idle",
-  "reclaim",
-]);
-
-/**
- * Reclaimable spend:
- *   - recurring monthly cost of licenses flagged idle/reclaim, plus
- *   - residual (depreciated) value of assets pending return.
- */
-export function reclaimable(
-  licenses: License[],
-  apps: AppCatalogItem[],
-  assets: Asset[],
-  assetCatalog: AssetCatalogItem[],
-): number {
-  const appById = indexById(apps);
-  const assetCatalogById = indexById(assetCatalog);
-
-  const licenseReclaim = sum(
-    licenses
-      .filter((l) => RECLAIMABLE_LICENSE_STATUSES.has(l.status))
-      .map((l) => {
-        const app = appById.get(l.appId);
-        return app ? monthlyCost(app.costPerSeat, app.billing) : 0;
-      }),
-  );
-
-  const assetReclaim = sum(
-    assets
-      .filter((a) => a.status === "returned" || a.status === "retired")
-      .map((a) => {
-        const cat = assetCatalogById.get(a.catalogId);
-        if (!cat) return 0;
-        // Value a returned asset as of when it came back, not the wall clock.
-        const asOf = a.returnedAt ? new Date(a.returnedAt) : new Date();
-        return residualValue(cat, a, asOf);
-      }),
-  );
-
-  return licenseReclaim + assetReclaim;
 }
 
 /**
@@ -547,13 +505,32 @@ export function buildBvA(input: {
 export interface FinanceSummary {
   recurringMonthlyBurn: number;
   projectedAnnualRunRate: number;
-  reclaimable: number;
+  /**
+   * Recurring $/mo recoverable from flagged license seats, sourced from the
+   * canonical reclaim engine (buildReclaimReport.recurringMonthly). Never summed
+   * with the one-time asset figure below — they carry different units.
+   */
+  reclaimableRecurringMonthly: number;
+  /**
+   * One-time $ recoverable from the residual value of pending-return assets,
+   * sourced from buildReclaimReport.oneTimeAssetResidual. A one-off, not a
+   * monthly figure.
+   */
+  reclaimableOneTimeAsset: number;
   assetsOnHand: number;
   totalSpend: number;
   overspentTeams: string[];
 }
 
-/** The payload behind GET /api/finance/summary. */
+/**
+ * The payload behind GET /api/finance/summary.
+ *
+ * The two `reclaimable*` fields are left at 0 here and filled in by
+ * getFinanceSummary() (src/server/queries.ts) from the canonical reclaim engine
+ * (buildReclaimReport), so the summary and GET /api/reclaim describe the same
+ * quantities and can't diverge. This pure function has no offboarding cohort to
+ * run the engine itself.
+ */
 export function financeSummary(input: {
   licenses: License[];
   apps: AppCatalogItem[];
@@ -565,12 +542,8 @@ export function financeSummary(input: {
   return {
     recurringMonthlyBurn: recurringMonthlyBurn(input.licenses, input.apps),
     projectedAnnualRunRate: projectedRunRate(input.licenses, input.apps),
-    reclaimable: reclaimable(
-      input.licenses,
-      input.apps,
-      input.assets,
-      input.assetCatalog,
-    ),
+    reclaimableRecurringMonthly: 0,
+    reclaimableOneTimeAsset: 0,
     assetsOnHand: assetsOnHand(input.assets),
     totalSpend: sum(input.ledgerEntries.map((e) => e.amount)),
     overspentTeams: input.budgets.filter(isOverspent).map((b) => b.team),

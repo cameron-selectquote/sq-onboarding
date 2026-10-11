@@ -34,13 +34,16 @@ export async function getFinanceSummary(): Promise<{ summary: FinanceSummary; bu
     budgets,
   });
 
-  // Canonical "reclaimable": the summary and the finance dashboard must agree,
-  // so override finance.ts's status-only figure with the reclaim queue total
-  // (idle/reclaim + rule-flagged seats) that the overview tile and reclaim page
-  // already render. One computation (getReclaimQueue) behind both the API and
-  // the view, so they can't drift.
-  const { monthly: reclaimableMonthly } = await getReclaimQueue();
-  summary.reclaimable = reclaimableMonthly;
+  // Canonical "reclaimable": the summary, the finance dashboard, and
+  // GET /api/reclaim must all agree, so both reclaim figures are sourced from
+  // the single reclaim engine (buildReclaimReport, via getReclaimQueue) rather
+  // than finance.ts. The two units stay separate — recurring $/mo and the
+  // one-time asset residual $ are never summed. One computation behind both the
+  // API and the view, so they can't drift.
+  const { monthly: reclaimableMonthly, oneTimeAsset: reclaimableOneTimeAsset } =
+    await getReclaimQueue();
+  summary.reclaimableRecurringMonthly = reclaimableMonthly;
+  summary.reclaimableOneTimeAsset = reclaimableOneTimeAsset;
 
   return { summary, budgets };
 }
@@ -161,9 +164,15 @@ function toQueueRows(
  * The finance reclaim queue and its monthly total. Reads the single reclaim
  * engine (buildReclaimReport) and groups its license flags for display, so the
  * overview's Reclaimable tile, the reclaim page, and GET /api/reclaim all
- * trace to one computation. `monthly` equals the report's `recurringMonthly`.
+ * trace to one computation. `monthly` equals the report's `recurringMonthly`
+ * ($/mo) and `oneTimeAsset` equals its `oneTimeAssetResidual` (one-off $) —
+ * kept as separate units, never summed.
  */
-export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: number }> {
+export async function getReclaimQueue(): Promise<{
+  rows: QueueRow[];
+  monthly: number;
+  oneTimeAsset: number;
+}> {
   const { repo } = await getServices();
   const [licenses, apps, assets, assetCatalog, hires] = await Promise.all([
     repo.licenses.list(),
@@ -185,7 +194,11 @@ export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: nu
   });
 
   const rows = toQueueRows(report.licenseFlags, licenses, apps, hires);
-  return { rows, monthly: report.recurringMonthly };
+  return {
+    rows,
+    monthly: report.recurringMonthly,
+    oneTimeAsset: report.oneTimeAssetResidual,
+  };
 }
 
 /** Human labels + ordering for reclaim reasons in the waste breakdown. */

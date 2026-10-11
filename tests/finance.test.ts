@@ -19,7 +19,6 @@ import {
   yearOverYear,
   recurringAddedSince,
   recurringMonthlyBurn,
-  reclaimable,
   residualValue,
 } from "@/lib/finance";
 import type { BvAReport } from "@/lib/finance";
@@ -102,21 +101,6 @@ describe("residualValue", () => {
   it("clamps to zero past full depreciation", () => {
     const asset: Asset = { id: "a1", catalogId: "mbp", serialTag: "x", status: "assigned", assignedToHireId: "h1", acquiredAt: "2020-01-01", returnedAt: null };
     expect(residualValue(assetCatalog[0]!, asset, new Date("2026-01-01"))).toBe(0);
-  });
-});
-
-describe("reclaimable", () => {
-  it("sums idle/reclaim license burn plus returned asset residual", () => {
-    const licenses: License[] = [
-      { id: "l1", hireId: "h1", appId: "github", status: "idle", grantedAt: null, lastUsedAt: null },
-      { id: "l2", hireId: "h1", appId: "github", status: "active", grantedAt: null, lastUsedAt: null },
-    ];
-    const assets: Asset[] = [
-      { id: "a1", catalogId: "mbp", serialTag: "x", status: "returned", assignedToHireId: null, acquiredAt: "2026-01-01", returnedAt: "2026-01-01" },
-    ];
-    const result = reclaimable(licenses, apps, assets, assetCatalog);
-    // 21 (idle github monthly) + 2400 residual (returned same day it was acquired)
-    expect(result).toBe(2421);
   });
 });
 
@@ -460,5 +444,10 @@ describe("financeSummary", () => {
     expect(summary.assetsOnHand).toBe(1);
     expect(summary.totalSpend).toBe(21);
     expect(summary.overspentTeams).toEqual(["it"]);
+    // The reclaim figures are filled in by getFinanceSummary() from the
+    // canonical reclaim engine; the pure assembler leaves them at 0 (and keeps
+    // the two units separate — recurring $/mo vs one-time asset $).
+    expect(summary.reclaimableRecurringMonthly).toBe(0);
+    expect(summary.reclaimableOneTimeAsset).toBe(0);
   });
 });
