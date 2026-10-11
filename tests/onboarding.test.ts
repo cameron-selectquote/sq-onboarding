@@ -112,7 +112,7 @@ async function seedHireWithSweTasks(): Promise<Repository> {
     },
   ];
   for (const t of tasks)
-    await repo.tasks.insert({hireId: 'hire_x', status: 'todo', ...t});
+    await repo.tasks.insert({hireId: 'hire_x', status: 'todo', appId: null, ...t});
   return repo;
 }
 

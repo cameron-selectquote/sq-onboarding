@@ -56,7 +56,8 @@ create table template_task (
   title        text not null,
   owner_team   team not null,
   cost         numeric(12,2) not null default 0,
-  cost_type    cost_type not null default 'none'
+  cost_type    cost_type not null default 'none',
+  app_id       text references app_catalog(id)
 );
 
 create table hire (
@@ -86,7 +87,8 @@ create table task (
   owner_team  team not null,
   status      task_status not null default 'todo',
   cost        numeric(12,2) not null default 0,
-  cost_type   cost_type not null default 'none'
+  cost_type   cost_type not null default 'none',
+  app_id      text references app_catalog(id)
 );
 
 create table license (

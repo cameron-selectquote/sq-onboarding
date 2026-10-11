@@ -86,6 +86,7 @@ function seedTasks(
         status: statuses[i] ?? 'todo',
         cost: tt.cost,
         costType: tt.costType,
+        appId: tt.appId ?? null,
       }));
   });
 }
@@ -362,6 +363,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 0,
       costType: 'none',
+      appId: null,
     },
     {
       id: 'tt_swe_2',
@@ -370,6 +372,7 @@ export const seedData: SeedData = {
       ownerTeam: 'vendor',
       cost: 2800,
       costType: 'one_time',
+      appId: null,
     },
     {
       id: 'tt_swe_3',
@@ -378,6 +381,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 21,
       costType: 'recurring',
+      appId: 'github',
     },
     {
       id: 'tt_swe_4',
@@ -386,6 +390,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 8,
       costType: 'recurring',
+      appId: 'slack',
     },
     {
       id: 'tt_swe_5',
@@ -394,6 +399,7 @@ export const seedData: SeedData = {
       ownerTeam: 'facilities',
       cost: 25,
       costType: 'one_time',
+      appId: null,
     },
     // Designer
     {
@@ -403,6 +409,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 0,
       costType: 'none',
+      appId: null,
     },
     {
       id: 'tt_des_2',
@@ -411,6 +418,7 @@ export const seedData: SeedData = {
       ownerTeam: 'vendor',
       cost: 2800,
       costType: 'one_time',
+      appId: null,
     },
     {
       id: 'tt_des_3',
@@ -419,6 +427,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 15,
       costType: 'recurring',
+      appId: 'figma',
     },
     {
       id: 'tt_des_4',
@@ -427,6 +436,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 8,
       costType: 'recurring',
+      appId: 'slack',
     },
     // Operations
     {
@@ -436,6 +446,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 0,
       costType: 'none',
+      appId: null,
     },
     {
       id: 'tt_ops_2',
@@ -444,6 +455,7 @@ export const seedData: SeedData = {
       ownerTeam: 'it',
       cost: 10,
       costType: 'recurring',
+      appId: 'notion',
     },
     {
       id: 'tt_ops_3',
@@ -452,6 +464,7 @@ export const seedData: SeedData = {
       ownerTeam: 'facilities',
       cost: 25,
       costType: 'one_time',
+      appId: null,
     },
   ],
 

@@ -136,6 +136,7 @@ async function seedForPublish(): Promise<Repository> {
       ownerTeam: 'it',
       cost: 0,
       costType: 'none',
+      appId: null,
     },
     {
       id: 'tt2',
@@ -144,6 +145,7 @@ async function seedForPublish(): Promise<Repository> {
       ownerTeam: 'vendor',
       cost: 2800,
       costType: 'one_time',
+      appId: null,
     },
   ];
   for (const t of templates) await repo.templates.insert(t);

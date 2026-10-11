@@ -30,7 +30,13 @@ export async function POST(req: Request) {
   }
 
   const { repo, templates } = await getServices();
-  const created: { hire: Hire; taskCount: number; licenseCount: number }[] = [];
+  const created: {
+    hire: Hire;
+    taskCount: number;
+    licenseCount: number;
+    deferredCount: number;
+    deferred: { appId: string; appName: string }[];
+  }[] = [];
 
   for (const row of body.rows) {
     if (!row.name || !row.email || !row.roleName || !row.startDate) {
@@ -57,6 +63,7 @@ export async function POST(req: Request) {
 
     let taskCount = 0;
     let licenseCount = 0;
+    let deferred: { appId: string; appName: string }[] = [];
     if (template) {
       const result = await templates.instantiateForHire(
         hire.id,
@@ -65,9 +72,16 @@ export async function POST(req: Request) {
       );
       taskCount = result.tasks.length;
       licenseCount = result.licenses.length;
+      deferred = result.deferred;
     }
 
-    created.push({ hire, taskCount, licenseCount });
+    created.push({
+      hire,
+      taskCount,
+      licenseCount,
+      deferredCount: deferred.length,
+      deferred,
+    });
   }
 
   return NextResponse.json({ created }, { status: 201 });

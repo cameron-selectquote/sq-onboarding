@@ -12,9 +12,9 @@ const hire: Hire = {
 };
 
 const tasks: Task[] = [
-  { id: "t1", hireId: "hire_1", title: "Order laptop", ownerTeam: "vendor", status: "done", cost: 2800, costType: "one_time" },
-  { id: "t2", hireId: "hire_1", title: "Grant GitHub seat", ownerTeam: "it", status: "todo", cost: 21, costType: "recurring" },
-  { id: "t3", hireId: "hire_2", title: "Someone else's task", ownerTeam: "it", status: "todo", cost: 8, costType: "recurring" },
+  { id: "t1", hireId: "hire_1", title: "Order laptop", ownerTeam: "vendor", status: "done", cost: 2800, costType: "one_time", appId: null },
+  { id: "t2", hireId: "hire_1", title: "Grant GitHub seat", ownerTeam: "it", status: "todo", cost: 21, costType: "recurring", appId: "github" },
+  { id: "t3", hireId: "hire_2", title: "Someone else's task", ownerTeam: "it", status: "todo", cost: 8, costType: "recurring", appId: null },
 ];
 
 describe("toChecklist", () => {

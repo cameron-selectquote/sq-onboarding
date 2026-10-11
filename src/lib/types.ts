@@ -99,6 +99,11 @@ export interface TemplateTask {
   ownerTeam: Team;
   cost: number;
   costType: CostType;
+  /**
+   * If set, this task grants a software seat for the given app when started.
+   * Starting it checks pool capacity: assigns if a seat is free, blocks if not.
+   */
+  appId: string | null;
 }
 
 export interface Hire {
@@ -119,6 +124,11 @@ export interface Task {
   status: TaskStatus;
   cost: number;
   costType: CostType;
+  /**
+   * If set, starting this task grants a seat for the given app (capacity-
+   * checked). Instantiated from the originating template task.
+   */
+  appId: string | null;
 }
 
 export interface License {
