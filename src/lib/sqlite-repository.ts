@@ -210,9 +210,21 @@ const SCHEMA = {
   appCatalog: {
     spec: {
       table: 'app_catalog',
-      columns: cols('id', 'name', 'category', 'costPerSeat', 'billing'),
+      columns: cols(
+        'id',
+        'name',
+        'category',
+        'costPerSeat',
+        'billing',
+        'seatsOwned',
+        'seatsInUseBaseline',
+      ),
     },
-    fieldTypes: {costPerSeat: 'number'},
+    fieldTypes: {
+      costPerSeat: 'number',
+      seatsOwned: 'number',
+      seatsInUseBaseline: 'number',
+    },
   } as SchemaEntry<AppCatalogItem>,
   assetCatalog: {
     spec: {
@@ -256,6 +268,7 @@ const SCHEMA = {
         'ownerTeam',
         'cost',
         'costType',
+        'appId',
       ),
     },
     fieldTypes: {cost: 'number'},
@@ -286,6 +299,7 @@ const SCHEMA = {
         'status',
         'cost',
         'costType',
+        'appId',
       ),
     },
     fieldTypes: {cost: 'number'},

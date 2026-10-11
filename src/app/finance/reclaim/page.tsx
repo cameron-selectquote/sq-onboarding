@@ -2,7 +2,6 @@ import { filterQueueForInFlight, getBudgetVsActual, getReclaimBreakdown, getRecl
 import { Meter, Shell } from "../../_components/Shell";
 import { ReclaimButton } from "../../_components/actions";
 import { money } from "../../_components/format";
-import { FINANCE_NAV } from "../nav";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +31,7 @@ export default async function FinanceReclaim() {
     bva.projectedVariance > 0 ? Math.min(100, Math.round((reclaim.quarterSavings / bva.projectedVariance) * 100)) : null;
 
   return (
-    <Shell nav={FINANCE_NAV} active="/finance/reclaim" who="Finance">
+    <Shell active="/finance/reclaim">
       <div className="banner">
         <div className="banner-text">
           <span style={{ fontSize: 13 }}>Recoverable spend</span>

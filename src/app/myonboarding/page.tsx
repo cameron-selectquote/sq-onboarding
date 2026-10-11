@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getServices } from "@/server/store";
+import { currentSession } from "@/server/auth";
 import { toHireChecklist, type HireChecklist } from "@/lib/progress";
 import { Avatar, Shell } from "../_components/Shell";
 import { longDate, teamLabel } from "../_components/format";
@@ -29,7 +30,9 @@ function Check() {
 
 /** New-hire checklist (design 2i; 2h layout on narrow screens). No costs. */
 export default async function MyOnboarding({ searchParams }: { searchParams: Promise<{ hire?: string }> }) {
-  const { hire: hireId } = await searchParams;
+  // Viewing as employee pins the checklist to the session's hire; ?hire= is for admin previews.
+  const session = await currentSession();
+  const hireId = session?.viewAs === "employee" ? (session.hireId ?? undefined) : (await searchParams).hire;
   const data = await loadChecklist(hireId);
   if (!data) notFound();
   const { list, managerName } = data;
@@ -38,7 +41,7 @@ export default async function MyOnboarding({ searchParams }: { searchParams: Pro
   const next = list.items.find((i) => i.status !== "done");
 
   return (
-    <Shell nav={[{ href: `/myonboarding?hire=${list.hire.id}`, label: "My onboarding" }]} active={`/myonboarding?hire=${list.hire.id}`} whoLabel="Signed in as" who={list.hire.name}>
+    <Shell active="/myonboarding">
       <span className="blob" aria-hidden />
       <div className="hire-layout">
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>

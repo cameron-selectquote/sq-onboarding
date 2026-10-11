@@ -15,6 +15,8 @@ async function seedHireWithSweTasks(): Promise<Repository> {
     category: 'dev',
     costPerSeat: 21,
     billing: 'monthly',
+    seatsOwned: 100,
+    seatsInUseBaseline: 0,
   });
   await repo.appCatalog.insert({
     id: 'slack',
@@ -22,6 +24,8 @@ async function seedHireWithSweTasks(): Promise<Repository> {
     category: 'comms',
     costPerSeat: 8,
     billing: 'monthly',
+    seatsOwned: 100,
+    seatsInUseBaseline: 0,
   });
   await repo.assetCatalog.insert({
     id: 'mbp16',
@@ -108,7 +112,7 @@ async function seedHireWithSweTasks(): Promise<Repository> {
     },
   ];
   for (const t of tasks)
-    await repo.tasks.insert({hireId: 'hire_x', status: 'todo', ...t});
+    await repo.tasks.insert({hireId: 'hire_x', status: 'todo', appId: null, ...t});
   return repo;
 }
 

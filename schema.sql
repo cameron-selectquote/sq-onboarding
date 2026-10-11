@@ -7,7 +7,7 @@ create type team            as enum ('hr', 'it', 'vendor', 'facilities', 'financ
 create type billing         as enum ('monthly', 'annual');
 create type cost_type       as enum ('none', 'one_time', 'recurring');
 create type task_status     as enum ('todo', 'in_progress', 'review', 'blocked', 'done');
-create type license_status  as enum ('active', 'idle', 'reclaim', 'revoked');
+create type license_status  as enum ('requested', 'active', 'idle', 'reclaim', 'revoked');
 create type asset_status    as enum ('in_stock', 'assigned', 'in_repair', 'returned', 'retired');
 create type ledger_type     as enum ('license_grant', 'license_revoke', 'asset_purchase', 'asset_return', 'fee');
 create type reclaim_status  as enum ('pending', 'reclaiming', 'done', 'cancelled');
@@ -33,7 +33,9 @@ create table app_catalog (
   name           text not null,
   category       text not null,
   cost_per_seat  numeric(12,2) not null,
-  billing        billing not null
+  billing        billing not null,
+  seats_owned    integer not null default 0,
+  seats_in_use_baseline integer not null default 0
 );
 
 create table asset_catalog (
@@ -55,7 +57,8 @@ create table template_task (
   title        text not null,
   owner_team   team not null,
   cost         numeric(12,2) not null default 0,
-  cost_type    cost_type not null default 'none'
+  cost_type    cost_type not null default 'none',
+  app_id       text references app_catalog(id)
 );
 
 create table hire (
@@ -85,7 +88,8 @@ create table task (
   owner_team  team not null,
   status      task_status not null default 'todo',
   cost        numeric(12,2) not null default 0,
-  cost_type   cost_type not null default 'none'
+  cost_type   cost_type not null default 'none',
+  app_id      text references app_catalog(id)
 );
 
 create table license (

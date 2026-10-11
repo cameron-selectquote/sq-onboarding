@@ -25,6 +25,8 @@ async function setup() {
     category: "dev",
     costPerSeat: MONTHLY,
     billing: "monthly",
+    seatsOwned: 100,
+    seatsInUseBaseline: 0,
   };
   await repo.appCatalog.insert(app);
 

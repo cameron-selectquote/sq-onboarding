@@ -1,6 +1,7 @@
 import { createMemoryRepository } from "@/lib/memory-repository";
 import { loadSeed, OFFBOARDING_COHORT, seedData } from "@/data/seed";
 import { buildReclaimReport } from "@/lib/reclaim";
+import { seatPools } from "@/lib/seats";
 
 describe("seed data", () => {
   it("loads into a repository without id collisions", async () => {
@@ -96,5 +97,22 @@ describe("seed data", () => {
     expect(report.oneTimeAssetResidual).toBeGreaterThan(0);
     expect(report.licenseFlags.length).toBeGreaterThan(0);
     expect(report.assetFlags.length).toBeGreaterThan(0);
+  });
+
+  it("shows the capacity story on load: a full pool and a waiting seat", async () => {
+    const repo = createMemoryRepository();
+    await loadSeed(repo);
+
+    const [apps, licenses] = await Promise.all([
+      repo.appCatalog.list(),
+      repo.licenses.list(),
+    ]);
+
+    // At least one pool fully allocated (available 0) — the "out of seats" story.
+    const pools = seatPools(apps, licenses);
+    expect(pools.some((p) => p.owned > 0 && p.available === 0)).toBe(true);
+
+    // At least one seat waiting in the queue (status `requested`).
+    expect(licenses.some((l) => l.status === "requested")).toBe(true);
   });
 });

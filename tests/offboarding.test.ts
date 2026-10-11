@@ -8,8 +8,8 @@ import type { Repository } from "@/lib/repository";
 
 async function seedOffboardable(): Promise<Repository> {
   const repo = createMemoryRepository();
-  await repo.appCatalog.insert({ id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly" });
-  await repo.appCatalog.insert({ id: "slack", name: "Slack", category: "comms", costPerSeat: 8, billing: "monthly" });
+  await repo.appCatalog.insert({ id: "github", name: "GitHub", category: "dev", costPerSeat: 21, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 });
+  await repo.appCatalog.insert({ id: "slack", name: "Slack", category: "comms", costPerSeat: 8, billing: "monthly", seatsOwned: 100, seatsInUseBaseline: 0 });
   await repo.assetCatalog.insert({ id: "mbp16", name: 'MacBook Pro 16"', category: "laptop", standardCost: 2800, depreciationMonths: 36 });
   await repo.budgets.insert({ id: "bud_it", team: "it", period: "2026-Q1", limit: 5000, spent: 500 });
   await repo.budgets.insert({ id: "bud_vendor", team: "vendor", period: "2026-Q1", limit: 40000, spent: 3000 });

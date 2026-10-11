@@ -2,7 +2,6 @@ import Link from 'next/link';
 import {getServices} from '@/server/store';
 import {portalUrlFor} from '@/lib/candidates';
 import {Avatar, PageHead, Shell} from '../../_components/Shell';
-import {SPECIALIST_NAV} from '../nav';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,11 +23,7 @@ export default async function Candidates() {
   const onboarding = sorted.filter((c) => c.status === 'onboarding').length;
 
   return (
-    <Shell
-      nav={SPECIALIST_NAV}
-      active='/specialist/candidates'
-      who='Specialist · HR'
-    >
+    <Shell active='/specialist/candidates'>
       <PageHead
         eyebrow={`${candidates.length} candidates · ${onboarding} onboarding`}
         title='Candidate pipeline'

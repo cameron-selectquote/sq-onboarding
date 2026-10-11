@@ -1,7 +1,6 @@
 import { getServices } from "@/server/store";
 import { PageHead, Shell } from "../../_components/Shell";
 import { BriefDrafter } from "../../_components/brief";
-import { SPECIALIST_NAV } from "../nav";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +14,7 @@ export default async function SpecialistBrief() {
   const hires = await repo.hires.list();
 
   return (
-    <Shell nav={SPECIALIST_NAV} active="/specialist/brief" who="Specialist · HR">
+    <Shell active="/specialist/brief">
       <PageHead
         eyebrow="AI · welcome brief"
         title="Draft a hire's access brief"

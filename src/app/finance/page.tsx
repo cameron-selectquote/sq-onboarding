@@ -3,7 +3,6 @@ import { getBudgetVsActual, getFinanceSummary, getReclaimQueue } from "@/server/
 import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, recurringAddedSince } from "@/lib/finance";
 import { Kpi, Meter, PageHead, Shell } from "../_components/Shell";
 import { money, teamLabel, timeAgo } from "../_components/format";
-import { FINANCE_NAV } from "./nav";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +53,7 @@ export default async function FinanceOverview() {
       : `${monthYearLabel(first)} – ${monthYearLabel(last!)}`;
 
   return (
-    <Shell nav={FINANCE_NAV} active="/finance" who="Finance">
+    <Shell active="/finance">
       <PageHead eyebrow={`${periodLabel} · onboarding spend`} title="Where the money's going" />
       <div className="kpis">
         <Kpi
