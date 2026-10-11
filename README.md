@@ -32,7 +32,25 @@ npm install        # install dependencies (once)
 npm run dev        # start the dev server
 ```
 
-Open http://localhost:3000 — the landing page lists the live API endpoints.
+Open http://localhost:3000 and sign in. You land on `/home`.
+
+## Sign in and roles
+
+Demo accounts live in `src/lib/accounts.ts` and share one password:
+
+| Username   | Role     | Sees                                                        |
+| ---------- | -------- | ----------------------------------------------------------- |
+| `admin`    | admin    | everything: board, finance, team queues, manager, API docs  |
+| `manager`  | manager  | home + their hires' progress (no costs)                     |
+| `employee` | employee | home + their own checklist (no costs, no API)               |
+
+Admins get a role picker under their avatar (bottom of the sidebar) to view
+as manager or as any employee. Access is enforced server-side by the viewing
+role (`src/lib/access.ts`, `src/middleware.ts`).
+
+Env: `AUTH_SECRET` signs the session cookie and `DEMO_PASSWORD` is the shared
+password. Both are required in production. In dev, if `DEMO_PASSWORD` is unset,
+any password works and the form prefills `admin`.
 
 ## Persistent store (first run)
 

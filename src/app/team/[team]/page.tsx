@@ -64,7 +64,7 @@ export default async function TeamQueue({
   const base = `/team/${team}`;
 
   return (
-    <Shell nav={[{ href: base, label: "Queue", badge: countFor(TABS[0]!.statuses) }]} active={base} who={`Team · ${teamLabel(team)}`}>
+    <Shell active={base}>
       <div className="with-rail">
         <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
           <PageHead eyebrow={`${teamLabel(team)} team`} title="Your queue" />

@@ -4,7 +4,6 @@ import type { Team } from "@/lib/types";
 import { Avatar, Kpi, PageHead, Shell } from "../../_components/Shell";
 import { ClickCard } from "../../_components/actions";
 import { shortDate, teamLabel } from "../../_components/format";
-import { SPECIALIST_NAV } from "../nav";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +42,7 @@ export default async function SpecialistHires() {
   const range = starts.length ? `Starting ${shortDate(starts[0]!)} – ${shortDate(starts[starts.length - 1]!)}` : "No hires yet";
 
   return (
-    <Shell nav={SPECIALIST_NAV} active="/specialist/hires" who="Specialist · HR">
+    <Shell active="/specialist/hires">
       <PageHead eyebrow={range} title="Who's ready, who's stuck" />
       <div className="kpis">
         <Kpi label="Ready" value={ready} sub="ready for day one" tone="good" />
