@@ -1,4 +1,5 @@
 import { buildReclaimReport, flagAssets, flagLicenses } from "@/lib/reclaim";
+import { OFFBOARDING_COHORT, seedData } from "@/data/seed";
 import type {
   AppCatalogItem,
   Asset,
@@ -168,5 +169,54 @@ describe("buildReclaimReport", () => {
     expect(report.assetFlags).toHaveLength(0);
     expect(report.recurringMonthly).toBe(0);
     expect(report.oneTimeAssetResidual).toBe(0);
+  });
+});
+
+describe("buildReclaimReport — shipped seed regression guard", () => {
+  // Pins the reclaimable totals the SHIPPED seed data produces, so a future
+  // seed edit can't silently drift the finance numbers. Mirrors how
+  // getReclaimQueue() (src/server/queries.ts) assembles the report from the
+  // seed: offboarding hires -> offboardingHireIds, default idleDays.
+  //
+  // asOf is FIXED (not the wall clock) so the asset residual — which
+  // depreciates against asOf — is deterministic. 2026-06-15 sits before every
+  // active license's seeded lastUsedAt (seed.ts backdates those with daysAgo()
+  // relative to load time), so no active seat trips the time-dependent idle
+  // rule; the recurring total comes entirely from the status-based (idle /
+  // reclaim) seats plus the duplicate Zoom seat, which are clock-independent.
+  const asOf = new Date("2026-06-15T00:00:00.000Z");
+
+  it("pins the recurring $/mo and one-time asset residual from the seed", () => {
+    const offboardingHireIds = new Set(
+      seedData.hires
+        .filter((h) => h.cohort === OFFBOARDING_COHORT)
+        .map((h) => h.id),
+    );
+
+    const report = buildReclaimReport({
+      licenses: seedData.licenses,
+      apps: seedData.appCatalog,
+      assets: seedData.assets,
+      assetCatalog: seedData.assetCatalog,
+      offboardingHireIds,
+      asOf,
+    });
+
+    // Recurring $/mo — one entry per flagged license, counted once:
+    //   lic_5  slack  idle      $8
+    //   lic_7  slack  reclaim   $8
+    //   lic_12 github idle      $21
+    //   lic_13 figma  idle      $15
+    //   lic_14 jira   reclaim   $14
+    //   lic_15 github idle      $21
+    //   lic_3  zoom   duplicate $15  (Zoom annual 180/12; 2nd comms seat for hire_1)
+    // = $102/mo. Exact integer dollars -> exact assertion.
+    expect(report.recurringMonthly).toBe(8 + 8 + 21 + 15 + 14 + 21 + 15);
+
+    // One-time asset residual: the single pending_return laptop asset_mbp_3
+    // (mbp16, standardCost 2800, 36-mo straight-line, acquired 2025-06-01),
+    // depreciated to asOf. ~$1.8k. Fractional -> tolerance, kept as its own
+    // unit (never summed with the $/mo figure).
+    expect(report.oneTimeAssetResidual).toBeCloseTo(1831.53, 2);
   });
 });
