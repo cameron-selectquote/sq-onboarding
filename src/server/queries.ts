@@ -3,19 +3,38 @@
  * its endpoint can't drift apart.
  */
 
-import { buildBvA, financeSummary, monthlyCost, reclaimImpact, recurringMonthlyBurn } from "@/lib/finance";
-import { buildReclaimReport } from "@/lib/reclaim";
-import { seatPools } from "@/lib/seats";
-import type { SeatPool } from "@/lib/seats";
-import type { LicenseReclaimFlag } from "@/lib/reclaim";
-import type { BvAReport, FinanceSummary, ReclaimImpact } from "@/lib/finance";
-import type { AppCatalogItem, Budget, Hire, LedgerEntry, License, ReclaimTask } from "@/lib/types";
-import { OFFBOARDING_COHORT } from "@/data/seed";
-import { getServices } from "./store";
+import {
+  buildBvA,
+  financeSummary,
+  monthlyCost,
+  reclaimImpact,
+  recurringMonthlyBurn,
+  residualValue,
+} from '@/lib/finance';
+import {buildReclaimReport} from '@/lib/reclaim';
+import {seatPools} from '@/lib/seats';
+import {hireProgress, hireStatus} from '@/lib/progress';
+import type {SeatPool} from '@/lib/seats';
+import type {HireStatus} from '@/lib/progress';
+import type {LicenseReclaimFlag} from '@/lib/reclaim';
+import type {BvAReport, FinanceSummary, ReclaimImpact} from '@/lib/finance';
+import type {
+  AppCatalogItem,
+  Budget,
+  Hire,
+  LedgerEntry,
+  License,
+  ReclaimTask,
+} from '@/lib/types';
+import {OFFBOARDING_COHORT} from '@/data/seed';
+import {getServices} from './store';
 
 /** The payload behind GET /api/finance/summary. */
-export async function getFinanceSummary(): Promise<{ summary: FinanceSummary; budgets: Budget[] }> {
-  const { repo } = await getServices();
+export async function getFinanceSummary(): Promise<{
+  summary: FinanceSummary;
+  budgets: Budget[];
+}> {
+  const {repo} = await getServices();
 
   const [licenses, apps, assets, assetCatalog, ledgerEntries, budgets] =
     await Promise.all([
@@ -42,12 +61,12 @@ export async function getFinanceSummary(): Promise<{ summary: FinanceSummary; bu
   // than finance.ts. The two units stay separate — recurring $/mo and the
   // one-time asset residual $ are never summed. One computation behind both the
   // API and the view, so they can't drift.
-  const { monthly: reclaimableMonthly, oneTimeAsset: reclaimableOneTimeAsset } =
+  const {monthly: reclaimableMonthly, oneTimeAsset: reclaimableOneTimeAsset} =
     await getReclaimQueue();
   summary.reclaimableRecurringMonthly = reclaimableMonthly;
   summary.reclaimableOneTimeAsset = reclaimableOneTimeAsset;
 
-  return { summary, budgets };
+  return {summary, budgets};
 }
 
 /** A ledger entry with the hire's display name resolved for the feed. */
@@ -66,8 +85,8 @@ export const LEDGER_FEED_LIMIT = 50;
  */
 export async function getLedgerFeed(
   limit: number = LEDGER_FEED_LIMIT,
-): Promise<{ entries: LedgerFeedEntry[] }> {
-  const { repo } = await getServices();
+): Promise<{entries: LedgerFeedEntry[]}> {
+  const {repo} = await getServices();
   const [ledgerEntries, hires] = await Promise.all([
     repo.ledgerEntries.list(),
     repo.hires.list(),
@@ -82,13 +101,13 @@ export async function getLedgerFeed(
       hireName: (e.hireId && hireById.get(e.hireId)?.name) || null,
     }));
 
-  return { entries };
+  return {entries};
 }
 
 const WHY: Record<string, string> = {
-  idle: "No login in 30+ days",
-  reclaim: "Marked for reclaim",
-  duplicate: "Same category, already has another",
+  idle: 'No login in 30+ days',
+  reclaim: 'Marked for reclaim',
+  duplicate: 'Same category, already has another',
   role_mismatch: "Outside the role's stack",
 };
 
@@ -141,7 +160,10 @@ function toQueueRows(
     const row = rows.get(key) ?? {
       key,
       reason,
-      what: reason === "duplicate" ? `Duplicate ${app.name} seats` : `${reason === "reclaim" ? "Flagged" : "Idle"} ${app.name} seats`,
+      what:
+        reason === 'duplicate' ?
+          `Duplicate ${app.name} seats`
+        : `${reason === 'reclaim' ? 'Flagged' : 'Idle'} ${app.name} seats`,
       why: WHY[reason] ?? reason,
       licenseIds: [],
       monthly: 0,
@@ -175,7 +197,7 @@ export async function getReclaimQueue(): Promise<{
   monthly: number;
   oneTimeAsset: number;
 }> {
-  const { repo } = await getServices();
+  const {repo} = await getServices();
   const [licenses, apps, assets, assetCatalog, hires] = await Promise.all([
     repo.licenses.list(),
     repo.appCatalog.list(),
@@ -238,10 +260,10 @@ export function filterQueueForInFlight(
 
 /** Human labels + ordering for reclaim reasons in the waste breakdown. */
 const REASON_LABEL: Record<string, string> = {
-  idle: "Idle",
-  reclaim: "Flagged for reclaim",
-  duplicate: "Duplicate category",
-  role_mismatch: "Wrong role",
+  idle: 'Idle',
+  reclaim: 'Flagged for reclaim',
+  duplicate: 'Duplicate category',
+  role_mismatch: 'Wrong role',
 };
 
 export interface WasteReason {
@@ -271,7 +293,7 @@ export interface ReclaimBreakdown {
  * else on the page.
  */
 export async function getReclaimBreakdown(): Promise<ReclaimBreakdown> {
-  const { rows } = await getReclaimQueue();
+  const {rows} = await getReclaimQueue();
 
   const byReason = new Map<string, WasteReason>();
   for (const row of rows) {
@@ -289,13 +311,13 @@ export async function getReclaimBreakdown(): Promise<ReclaimBreakdown> {
   const reasons = [...byReason.values()].sort((a, b) => b.monthly - a.monthly);
   const monthly = reasons.reduce((acc, r) => acc + r.monthly, 0);
   const seats = reasons.reduce((acc, r) => acc + r.seats, 0);
-  return { reasons, monthly, annual: monthly * 12, seats };
+  return {reasons, monthly, annual: monthly * 12, seats};
 }
 
 /** One open/closed reclaim job, enriched for the finance + IT views. */
 export interface ReclaimJob {
   taskId: string;
-  status: ReclaimTask["status"];
+  status: ReclaimTask['status'];
   licenseId: string;
   /** Hire holding the seat, or null if unassigned. */
   hireName: string | null;
@@ -303,7 +325,7 @@ export interface ReclaimJob {
   app: string;
   /** Per-seat monthly cost ($/mo). */
   monthly: number;
-  createdByTeam: ReclaimTask["createdByTeam"];
+  createdByTeam: ReclaimTask['createdByTeam'];
 }
 
 /**
@@ -317,9 +339,9 @@ export interface ReclaimJob {
  */
 export async function getReclaimJobs(): Promise<{
   jobs: ReclaimJob[];
-  counts: { pending: number; reclaiming: number; done: number };
+  counts: {pending: number; reclaiming: number; done: number};
 }> {
-  const { repo } = await getServices();
+  const {repo} = await getServices();
   const [reclaimTasks, licenses, apps, hires] = await Promise.all([
     repo.reclaimTasks.list(),
     repo.licenses.list(),
@@ -331,15 +353,15 @@ export async function getReclaimJobs(): Promise<{
   const appById = new Map(apps.map((a) => [a.id, a]));
   const hireById = new Map(hires.map((h) => [h.id, h]));
 
-  const counts = { pending: 0, reclaiming: 0, done: 0 };
+  const counts = {pending: 0, reclaiming: 0, done: 0};
   for (const t of reclaimTasks) {
-    if (t.status === "pending") counts.pending += 1;
-    else if (t.status === "reclaiming") counts.reclaiming += 1;
-    else if (t.status === "done") counts.done += 1;
+    if (t.status === 'pending') counts.pending += 1;
+    else if (t.status === 'reclaiming') counts.reclaiming += 1;
+    else if (t.status === 'done') counts.done += 1;
   }
 
   const jobs: ReclaimJob[] = reclaimTasks
-    .filter((t) => t.status === "pending" || t.status === "reclaiming")
+    .filter((t) => t.status === 'pending' || t.status === 'reclaiming')
     .map((t) => {
       const license = licenseById.get(t.licenseId);
       const app = license ? appById.get(license.appId) : undefined;
@@ -348,13 +370,13 @@ export async function getReclaimJobs(): Promise<{
         status: t.status,
         licenseId: t.licenseId,
         hireName: (license && hireById.get(license.hireId)?.name) ?? null,
-        app: app?.name ?? "Unknown app",
+        app: app?.name ?? 'Unknown app',
         monthly: app ? monthlyCost(app.costPerSeat, app.billing) : 0,
         createdByTeam: t.createdByTeam,
       };
     });
 
-  return { jobs, counts };
+  return {jobs, counts};
 }
 
 /**
@@ -365,8 +387,8 @@ export async function getReclaimJobs(): Promise<{
  */
 export async function getBudgetVsActual(
   asOf: Date = new Date(),
-): Promise<{ bva: BvAReport; reclaim: ReclaimImpact }> {
-  const { repo } = await getServices();
+): Promise<{bva: BvAReport; reclaim: ReclaimImpact}> {
+  const {repo} = await getServices();
   const [ledgerEntries, budgets, licenses, apps] = await Promise.all([
     repo.ledgerEntries.list(),
     repo.budgets.list(),
@@ -376,14 +398,19 @@ export async function getBudgetVsActual(
 
   const budgetLimit = budgets.reduce((acc, b) => acc + b.limit, 0);
   const monthlyRecurringForecast = recurringMonthlyBurn(licenses, apps);
-  const bva = buildBvA({ ledgerEntries, budgetLimit, monthlyRecurringForecast, asOf });
+  const bva = buildBvA({
+    ledgerEntries,
+    budgetLimit,
+    monthlyRecurringForecast,
+    asOf,
+  });
 
   // Reclaim lever: how much the current reclaimable monthly spend would shift
   // the quarter-end forecast if recovered now.
-  const { monthly: reclaimableMonthly } = await getReclaimQueue();
+  const {monthly: reclaimableMonthly} = await getReclaimQueue();
   const reclaim = reclaimImpact(bva, reclaimableMonthly);
 
-  return { bva, reclaim };
+  return {bva, reclaim};
 }
 
 /**
@@ -392,7 +419,7 @@ export async function getBudgetVsActual(
  * biggest right-sizing opportunities surface at the top of the panel.
  */
 export async function getSeatPools(): Promise<SeatPool[]> {
-  const { repo } = await getServices();
+  const {repo} = await getServices();
   const [apps, licenses] = await Promise.all([
     repo.appCatalog.list(),
     repo.licenses.list(),
@@ -401,4 +428,120 @@ export async function getSeatPools(): Promise<SeatPool[]> {
   return seatPools(apps, licenses)
     .filter((p) => p.owned > 0)
     .sort((a, b) => a.assigned / a.owned - b.assigned / b.owned);
+}
+
+// ---- hire status (read-only "pull up a person") ---------------------------
+
+/** One granted/active software seat on a hire's status card. */
+export interface HireStatusSeat {
+  app: string;
+  /** License status: active / idle / reclaim / revoked / requested. */
+  status: License['status'];
+  /** Per-seat monthly cost ($/mo). */
+  monthly: number;
+}
+
+/** One asset currently assigned to a hire. */
+export interface HireStatusAsset {
+  name: string;
+  serialTag: string;
+  /** Residual (depreciated) value today. */
+  residual: number;
+}
+
+/** A read-only snapshot of where a hire is in onboarding + what they hold. */
+export interface HireStatusSummary {
+  hireId: string;
+  name: string;
+  roleName: string;
+  startDate: string;
+  managerName: string | null;
+  /** True when this hire is in the offboarding cohort. */
+  offboarding: boolean;
+  /** Roll-up task status + progress. */
+  status: HireStatus;
+  done: number;
+  total: number;
+  /** The next open (or blocked) task title, if any. */
+  nextTask: string | null;
+  /** Active/idle seats the hire holds (what software they have/want). */
+  seats: HireStatusSeat[];
+  /** Hardware assigned to the hire (what hardware they have/want). */
+  assets: HireStatusAsset[];
+  /** Recurring $/mo across their active seats. */
+  monthlyRecurring: number;
+}
+
+/**
+ * Pull up a single hire: progress + the software seats and hardware they hold.
+ * Read-only — composes the same progress/finance helpers the role views use so
+ * the numbers match. Returns null when the hire id doesn't resolve.
+ */
+export async function getHireStatus(
+  hireId: string,
+  asOf: Date = new Date(),
+): Promise<HireStatusSummary | null> {
+  const {repo} = await getServices();
+  const hire = await repo.hires.get(hireId);
+  if (!hire) return null;
+
+  const [tasks, licenses, apps, assets, assetCatalog, manager] =
+    await Promise.all([
+      repo.tasks.where((t) => t.hireId === hireId),
+      repo.licenses.where((l) => l.hireId === hireId),
+      repo.appCatalog.list(),
+      repo.assets.where((a) => a.assignedToHireId === hireId),
+      repo.assetCatalog.list(),
+      hire.managerId ? repo.users.get(hire.managerId) : Promise.resolve(null),
+    ]);
+
+  const appById = new Map(apps.map((a) => [a.id, a]));
+  const catById = new Map(assetCatalog.map((c) => [c.id, c]));
+  const progress = hireProgress(tasks);
+
+  // Seats the hire is actually holding (active or idle still cost money);
+  // revoked seats are dropped since they're no longer theirs.
+  const seats: HireStatusSeat[] = licenses
+    .filter((l) => l.status !== 'revoked')
+    .map((l) => {
+      const app = appById.get(l.appId);
+      return {
+        app: app?.name ?? l.appId,
+        status: l.status,
+        monthly: app ? monthlyCost(app.costPerSeat, app.billing) : 0,
+      };
+    })
+    .sort((a, b) => a.app.localeCompare(b.app));
+
+  const statusAssets: HireStatusAsset[] = assets
+    .filter((a) => a.status === 'assigned')
+    .map((a) => {
+      const cat = catById.get(a.catalogId);
+      return {
+        name: cat?.name ?? a.catalogId,
+        serialTag: a.serialTag,
+        residual: cat ? residualValue(cat, a, asOf) : 0,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const monthlyRecurring = seats
+    .filter((s) => s.status === 'active' || s.status === 'idle')
+    .reduce((sum, s) => sum + s.monthly, 0);
+
+  return {
+    hireId: hire.id,
+    name: hire.name,
+    roleName: hire.roleName,
+    startDate: hire.startDate,
+    managerName: manager?.name ?? null,
+    offboarding: hire.cohort === OFFBOARDING_COHORT,
+    status: hireStatus(tasks),
+    done: progress.done,
+    total: progress.total,
+    nextTask: progress.next?.title ?? null,
+    seats,
+    assets: statusAssets,
+    monthlyRecurring,
+  };
 }

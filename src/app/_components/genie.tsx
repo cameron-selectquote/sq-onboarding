@@ -9,6 +9,7 @@
 
 import {useEffect, useRef, useState} from 'react';
 import {MiniMarkdown} from './MiniMarkdown';
+import {shortDate} from './format';
 
 /** A structured recovered-spend card the chat renders as a visual panel. */
 interface ReclaimCard {
@@ -21,11 +22,31 @@ interface ReclaimCard {
   oneTimeRecovered: number;
 }
 
+/** A read-only status card for "pull up a person". */
+interface StatusCard {
+  type: 'status';
+  hireName: string;
+  roleName: string;
+  startDate: string;
+  managerName: string | null;
+  offboarding: boolean;
+  statusLabel: string;
+  done: number;
+  total: number;
+  pct: number;
+  nextTask: string | null;
+  seats: {label: string; status: string; monthly: number}[];
+  assets: {label: string; residual: number}[];
+  monthlyRecurring: number;
+}
+
+type GenieCard = ReclaimCard | StatusCard;
+
 interface ChatTurn {
   role: 'genie' | 'user';
   text: string;
   engine?: 'strands-bedrock' | 'scripted';
-  card?: ReclaimCard | null;
+  card?: GenieCard | null;
 }
 
 interface GenieReply {
@@ -36,7 +57,7 @@ interface GenieReply {
   /** Opaque pending offboard — round-tripped so the yes/no gate persists. */
   offboard?: unknown;
   /** Optional structured card to render alongside the message (render-only). */
-  card?: ReclaimCard | null;
+  card?: GenieCard | null;
 }
 
 const money0 = (n: number): string =>
@@ -100,6 +121,101 @@ function ReclaimCardView({card}: {card: ReclaimCard}) {
           <span className='reclaim-card-total-label'>one-time</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Read-only onboarding-status panel for "pull up a person". */
+function StatusCardView({card}: {card: StatusCard}) {
+  return (
+    <div className='status-card' role='group'>
+      <div className='status-card-head'>
+        <span className='status-card-title'>{card.hireName}</span>
+        <span
+          className={`tag ${card.offboarding ? 'tag-neutral' : 'tag-accent-2'}`}
+        >
+          {card.offboarding ? 'Offboarding' : card.statusLabel}
+        </span>
+      </div>
+
+      <div className='status-card-meta'>
+        <span>{card.roleName}</span>
+        <span>·</span>
+        <span>Starts {shortDate(card.startDate)}</span>
+        {card.managerName && (
+          <>
+            <span>·</span>
+            <span>Mgr {card.managerName}</span>
+          </>
+        )}
+      </div>
+
+      {card.total > 0 && (
+        <div className='status-card-progress'>
+          <div className='status-card-bar'>
+            <div
+              className='status-card-bar-fill'
+              style={{width: `${card.pct}%`}}
+            />
+          </div>
+          <span className='status-card-progress-label'>
+            {card.done}/{card.total} tasks · {card.pct}%
+          </span>
+        </div>
+      )}
+      {card.nextTask && !card.offboarding && (
+        <div className='status-card-next'>
+          <span className='status-card-label'>Up next</span>
+          <span>{card.nextTask}</span>
+        </div>
+      )}
+
+      <div className='status-card-section'>
+        <span className='status-card-label'>
+          Software ({card.seats.length})
+        </span>
+        {card.seats.length === 0 ?
+          <span className='muted' style={{fontSize: 13}}>
+            No seats yet
+          </span>
+        : card.seats.map((s, i) => (
+            <div key={i} className='status-card-row'>
+              <span>
+                {s.label}
+                {(s.status === 'idle' || s.status === 'reclaim') && (
+                  <span className='pill pill-blocked' style={{marginLeft: 6}}>
+                    {s.status}
+                  </span>
+                )}
+              </span>
+              <span className='status-card-amt'>{money0(s.monthly)}/mo</span>
+            </div>
+          ))
+        }
+      </div>
+
+      <div className='status-card-section'>
+        <span className='status-card-label'>
+          Hardware ({card.assets.length})
+        </span>
+        {card.assets.length === 0 ?
+          <span className='muted' style={{fontSize: 13}}>
+            No hardware assigned
+          </span>
+        : card.assets.map((a, i) => (
+            <div key={i} className='status-card-row'>
+              <span>{a.label}</span>
+              <span className='status-card-amt'>{money0(a.residual)}</span>
+            </div>
+          ))
+        }
+      </div>
+
+      {card.monthlyRecurring > 0 && (
+        <div className='status-card-foot'>
+          Recurring spend: <strong>{money0(card.monthlyRecurring)}/mo</strong>
+        </div>
+      )}
     </div>
   );
 }
@@ -286,6 +402,11 @@ export function GenieChat({initialName}: {initialName?: string}) {
                       Alverez”.
                     </li>
                     <li>
+                      <strong>Pull up a person</strong> — “pull up Nora”, “what
+                      does Sam have”. I show their onboarding status and the
+                      software/hardware they hold — no onboarding started.
+                    </li>
+                    <li>
                       <strong>Build a 30-day plan</strong> — Day 1 essentials,
                       role &amp; tool access, and 30-day milestones, with the
                       software seats I&apos;ll grant.
@@ -340,6 +461,7 @@ export function GenieChat({initialName}: {initialName?: string}) {
                 {t.card?.type === 'reclaim' && (
                   <ReclaimCardView card={t.card} />
                 )}
+                {t.card?.type === 'status' && <StatusCardView card={t.card} />}
               </div>
             : <p className='genie-text'>{t.text}</p>}
           </div>

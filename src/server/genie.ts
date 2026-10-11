@@ -35,7 +35,12 @@ import {
   type PendingPlan,
 } from '@/lib/plan';
 import type {OffboardPreview, OffboardResult} from '@/lib/offboarding';
-import {classifyConfirmation, parseOffboardIntent} from '@/lib/intent';
+import {
+  classifyConfirmation,
+  parseOffboardIntent,
+  parseViewIntent,
+} from '@/lib/intent';
+import {getHireStatus, type HireStatusSummary} from '@/server/queries';
 import type {AppCatalogItem, Candidate} from '@/lib/types';
 import type {Repository} from '@/lib/repository';
 import {hasBedrockCreds} from '@/lib/bedrock';
@@ -81,6 +86,8 @@ export const GENIE_SYSTEM_PROMPT = `You are Genie, an intelligent assistant insi
 PERSONALITY & BEHAVIOR
 - Proactive, concise, and professional with a welcoming tone.
 - Never invent candidate information, roles, or resume details. Rely strictly on the tools provided.
+
+INTENT: Not every request is to onboard. If the user just wants to SEE or pull up a person (e.g. "pull up Nora", "show me Sam's status", "what does Quinn have", "how's Jordan doing"), call viewHireStatus and show their onboarding progress and the software/hardware they hold. Do NOT start an onboarding confirmation for a lookup.
 
 CONVERSATIONAL WORKFLOW
 1. GREETING: Open with "Hey, what can I help you with today?"
@@ -267,6 +274,44 @@ async function buildTools() {
     },
   });
 
+  const viewHireStatus = tool({
+    name: 'viewHireStatus',
+    description:
+      "Read-only. Pull up a hire's current onboarding status and what they hold — task progress, the software seats granted (with $/mo), and the hardware assigned. Use when the user wants to SEE or look up a person (e.g. 'pull up Nora', 'what does Sam have', 'how's Quinn doing'), NOT to start onboarding. Look up by hire name or id. Writes nothing.",
+    inputSchema: z.object({
+      hireName: z.string().optional().describe('The hire name to look up'),
+      hireId: z.string().optional().describe('The hire id, if known'),
+    }),
+    callback: async ({hireName, hireId}) => {
+      const id = hireId ?? (await resolveHireId(repo, hireName ?? ''));
+      if (!id) return {error: `No hire found for "${hireName ?? hireId}"`};
+      const s = await getHireStatus(id);
+      if (!s) return {error: `No hire found for "${hireName ?? hireId}"`};
+      return {
+        hireName: s.name,
+        role: s.roleName,
+        startDate: s.startDate,
+        manager: s.managerName,
+        offboarding: s.offboarding,
+        status: s.status,
+        tasksDone: s.done,
+        tasksTotal: s.total,
+        nextTask: s.nextTask,
+        software: s.seats.map((seat) => ({
+          app: seat.app,
+          status: seat.status,
+          monthly: Math.round(seat.monthly),
+        })),
+        hardware: s.assets.map((a) => ({
+          name: a.name,
+          serial: a.serialTag,
+          residual: Math.round(a.residual),
+        })),
+        monthlyRecurring: Math.round(s.monthlyRecurring),
+      };
+    },
+  });
+
   const draftWelcomeBrief = tool({
     name: 'draftWelcomeBrief',
     description:
@@ -299,6 +344,7 @@ async function buildTools() {
     previewOffboarding,
     executeOffboarding,
     draftWelcomeBrief,
+    viewHireStatus,
   ];
 }
 
@@ -392,7 +438,29 @@ export interface ReclaimCard {
   oneTimeRecovered: number;
 }
 
-export type GenieCard = ReclaimCard;
+/**
+ * A read-only status card for "pull up a person": where they are in onboarding
+ * and what software/hardware they hold. Render-only, like ReclaimCard.
+ */
+export interface StatusCard {
+  type: 'status';
+  hireName: string;
+  roleName: string;
+  startDate: string;
+  managerName: string | null;
+  offboarding: boolean;
+  /** Roll-up status label, e.g. "In progress", "Blocked", "Done". */
+  statusLabel: string;
+  done: number;
+  total: number;
+  pct: number;
+  nextTask: string | null;
+  seats: {label: string; status: string; monthly: number}[];
+  assets: {label: string; residual: number}[];
+  monthlyRecurring: number;
+}
+
+export type GenieCard = ReclaimCard | StatusCard;
 
 export interface GenieReply {
   /** Assistant text to show the user. */
@@ -452,6 +520,14 @@ export async function runGenieTurn(input: GenieTurnInput): Promise<GenieReply> {
   // decides it here.
   const gated = await resolveOffboardConfirmation(input);
   if (gated) return gated;
+
+  // A read-only "pull up / view status" lookup is handled deterministically on
+  // both engines so "pull up Nora" shows a status card instead of starting an
+  // onboarding confirmation. Only fires when there's no plan/offboard in play.
+  if (!input.plan && !input.offboard) {
+    const viewed = await resolveViewRequest(input);
+    if (viewed) return viewed;
+  }
 
   if (hasBedrockCreds()) {
     try {
@@ -576,6 +652,125 @@ async function resolveOffboardConfirmation(
     offboard: {hireId: preview.hireId, hireName: preview.hireName},
     plan: input.plan ?? null,
     card: reclaimCardFromPreview(preview),
+  };
+}
+
+/**
+ * Deterministic read-only lookup: "pull up Nora", "show me Sam's status",
+ * "what does Quinn have". Resolves the name against published hires first
+ * (status card), then unonboarded candidates (offer to onboard). Returns null
+ * when the turn isn't a lookup, so normal handling runs.
+ */
+async function resolveViewRequest(
+  input: GenieTurnInput,
+): Promise<GenieReply | null> {
+  const name = parseViewIntent(input.message);
+  if (!name) return null;
+
+  const {repo} = await getServices();
+  const engine: GenieReply['engine'] =
+    hasBedrockCreds() ? 'strands-bedrock' : 'scripted';
+  const base = {engine, plan: null, offboard: null} as const;
+
+  // Published hires first — those are the people with a live onboarding status.
+  const lookup = await resolveHire(repo, name);
+  if (lookup.kind === 'many') {
+    const list = lookup.matches.map((m) => `- ${m.name}`).join('\n');
+    return {
+      ...base,
+      message: [
+        `More than one person matches "${name}":`,
+        ``,
+        list,
+        ``,
+        `Which one? Reply with the full name.`,
+      ].join('\n'),
+    };
+  }
+  if (lookup.kind === 'one') {
+    const status = await getHireStatus(lookup.id);
+    if (status) {
+      return {
+        ...base,
+        message: renderStatusSummary(status),
+        card: statusCardFrom(status),
+      };
+    }
+  }
+
+  // Not a published hire — maybe a candidate who hasn't been onboarded yet.
+  const all = await repo.candidates.list();
+  const {confidence, matches} = classifyMatches(all, name);
+  if (confidence === 'confident' && matches[0]) {
+    const c = matches[0].candidate;
+    return {
+      ...base,
+      message: [
+        `**${c.name}** is a candidate (${c.title}) but hasn't been onboarded yet, so there's no onboarding status or tools to show.`,
+        ``,
+        `Want me to onboard them? Just say "onboard ${c.name}".`,
+      ].join('\n'),
+    };
+  }
+
+  return {
+    ...base,
+    message: `I couldn't find anyone named "${name}" to pull up. Try a different spelling, or a first or last name.`,
+  };
+}
+
+/** The prose lead-in shown above a status card. */
+function renderStatusSummary(s: {
+  name: string;
+  roleName: string;
+  offboarding: boolean;
+  done: number;
+  total: number;
+}): string {
+  if (s.offboarding) {
+    return `Here's **${s.name}** (${s.roleName}) — currently offboarding.`;
+  }
+  const progress =
+    s.total === 0 ?
+      'no onboarding tasks yet'
+    : `${s.done} of ${s.total} onboarding tasks done`;
+  return `Here's where **${s.name}** (${s.roleName}) stands — ${progress}. Details below.`;
+}
+
+/** Status roll-up label for the card header. */
+const STATUS_LABEL: Record<string, string> = {
+  none: 'No tasks',
+  todo: 'Not started',
+  in_progress: 'In progress',
+  blocked: 'Blocked',
+  done: 'Done',
+};
+
+/** Build the render-only status card from a hire-status summary. */
+function statusCardFrom(s: HireStatusSummary): StatusCard {
+  const pct = s.total === 0 ? 0 : Math.round((s.done / s.total) * 100);
+  return {
+    type: 'status',
+    hireName: s.name,
+    roleName: s.roleName,
+    startDate: s.startDate,
+    managerName: s.managerName,
+    offboarding: s.offboarding,
+    statusLabel: STATUS_LABEL[s.status] ?? s.status,
+    done: s.done,
+    total: s.total,
+    pct,
+    nextTask: s.nextTask,
+    seats: s.seats.map((seat) => ({
+      label: seat.app,
+      status: seat.status,
+      monthly: seat.monthly,
+    })),
+    assets: s.assets.map((a) => ({
+      label: `${a.name} (${a.serialTag})`,
+      residual: a.residual,
+    })),
+    monthlyRecurring: s.monthlyRecurring,
   };
 }
 
