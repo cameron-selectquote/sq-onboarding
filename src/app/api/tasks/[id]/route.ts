@@ -13,10 +13,8 @@ const VALID: ReadonlySet<TaskStatus> = new Set([
 /**
  * PATCH /api/tasks/:id — update task status (board drag, queue actions).
  *
- * Starting a seat-granting task (one with an `appId`) checks license capacity:
- * if a seat is available it is assigned (active license + ledger + budget) and
- * the task proceeds to in_progress; if the pool is full the task is set to
- * `blocked` instead and the response reports why.
+ * Starting a seat-granting task (one with an `appId`) assigns the seat (active
+ * license + ledger + budget) and moves the task to in_progress.
  */
 export async function PATCH(
   req: Request,
@@ -36,7 +34,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Task not found" }, { status: 404 });
   }
 
-  // Starting a seat-granting task: try to assign the seat first.
+  // Starting a seat-granting task also assigns the seat.
   const startingSeatTask =
     nextStatus === "in_progress" &&
     existing.status !== "in_progress" &&
@@ -48,14 +46,6 @@ export async function PATCH(
       const task = await repo.tasks.update(id, { status: "in_progress" });
       return NextResponse.json({ task, license });
     } catch (err) {
-      // No seat available: block the task instead of proceeding.
-      if ((err as { code?: string }).code === "no_seats_available") {
-        const task = await repo.tasks.update(id, { status: "blocked" });
-        return NextResponse.json(
-          { task, error: (err as Error).message, blocked: true },
-          { status: 409 },
-        );
-      }
       return NextResponse.json({ error: (err as Error).message }, { status: 400 });
     }
   }
