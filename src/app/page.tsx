@@ -9,8 +9,8 @@ const ROLES = [
   { href: "/specialist", kicker: "Specialist · HR", title: "Onboarding board", body: "Every hire's tasks by status, and who's ready or stuck." },
   { href: "/finance", kicker: "Finance", title: "Spend + reclaim", body: "Live burn, budgets, the ledger, and seats to take back." },
   { href: "/team/it", kicker: "Team · IT", title: "IT queue", body: "Seats to grant, accounts to create, inventory on hand." },
-  { href: "/team/vendor", kicker: "Team · Vendor", title: "Vendor queue", body: "Hardware to order. Raise POs against the budget." },
-  { href: "/team/facilities", kicker: "Team · Facilities", title: "Facilities queue", body: "Badges and desks for day one." },
+  { href: "/team/vendor", kicker: "Team · Hardware", title: "Hardware queue", body: "Hardware to order. Raise POs against the budget." },
+  { href: "/team/facilities", kicker: "Team · Facilities", title: "Facilities queue", body: "Badges and day-one setup." },
   { href: "/manager", kicker: "Manager", title: "My hires", body: "How far along each of your people is." },
   { href: "/myonboarding?hire=hire_1", kicker: "New hire", title: "My onboarding", body: "Your checklist and your people. No costs." },
 ];

@@ -34,6 +34,24 @@ export function hireProgress(tasks: Task[]): HireProgress {
   };
 }
 
+/**
+ * A hire's single roll-up status, derived from their tasks:
+ *   - blocked:     any task is blocked (wins — surfaces the stuck hires)
+ *   - done:        has tasks and every one is done
+ *   - in_progress: at least one task has moved past "todo"
+ *   - todo:        has tasks but none have started
+ *   - none:        no tasks at all
+ */
+export type HireStatus = "none" | "todo" | "in_progress" | "blocked" | "done";
+
+export function hireStatus(tasks: Task[]): HireStatus {
+  if (tasks.length === 0) return "none";
+  if (tasks.some((t) => t.status === "blocked")) return "blocked";
+  if (tasks.every((t) => t.status === "done")) return "done";
+  if (tasks.some((t) => t.status !== "todo")) return "in_progress";
+  return "todo";
+}
+
 export type TeamCell =
   | { kind: "none" } // no tasks for this team
   | { kind: "done" }
