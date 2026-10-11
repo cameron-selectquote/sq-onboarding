@@ -6,14 +6,14 @@
  * no business logic here, and no full reload (role-views AC #2, #3).
  */
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition, type ReactNode } from "react";
-import type { TaskStatus } from "@/lib/types";
-import { money } from "./format";
+import {useRouter} from 'next/navigation';
+import {useState, useTransition, type ReactNode} from 'react';
+import type {TaskStatus} from '@/lib/types';
+import {money} from './format';
 
 async function send(
   url: string,
-  method: "POST" | "PATCH",
+  method: 'POST' | 'PATCH',
   body?: unknown,
 ): Promise<void> {
   const res = await fetch(url, {
@@ -200,6 +200,109 @@ export function MarkReadButton({id}: {id: string}) {
   );
 }
 
+/** Open a reclaim job per seat — POST /api/reclaim-tasks (finance flags, IT executes). */
+export function ReclaimButton({
+  licenseIds,
+  createdByTeam,
+  label,
+  className = 'btn btn-secondary',
+}: {
+  licenseIds: string[];
+  createdByTeam: 'finance' | 'it';
+  label: string;
+  className?: string;
+}) {
+  const {run, pending, error} = useMutation();
+  return (
+    <span>
+      <button
+        className={className}
+        disabled={pending || licenseIds.length === 0}
+        onClick={() =>
+          run(
+            licenseIds.map(
+              (id) => () =>
+                send('/api/reclaim-tasks', 'POST', {
+                  licenseId: id,
+                  createdByTeam,
+                }),
+            ),
+          )
+        }
+      >
+        {pending ? 'Working…' : label}
+      </button>
+      {error && <span className='error'> {error}</span>}
+    </span>
+  );
+}
+
+/** Drive one reclaim job — PATCH /api/reclaim-tasks/:id (Start / Mark done / Cancel). */
+export function ReclaimJobButton({
+  taskId,
+  action,
+  label,
+  primary,
+}: {
+  taskId: string;
+  action: 'start' | 'complete' | 'cancel';
+  label: string;
+  primary?: boolean;
+}) {
+  const {run, pending, error} = useMutation();
+  return (
+    <span>
+      <button
+        className={primary ? 'btn btn-primary' : 'btn btn-secondary'}
+        style={{fontSize: 13}}
+        disabled={pending}
+        onClick={() =>
+          run([() => send(`/api/reclaim-tasks/${taskId}`, 'PATCH', {action})])
+        }
+      >
+        {label}
+      </button>
+      {error && <span className='error'> {error}</span>}
+    </span>
+  );
+}
+
+/**
+ * Complete every open reclaim job — one PATCH /api/reclaim-tasks/:id
+ * { action: 'complete' } per taskId, in order (mirrors LicenseButton's fan-out
+ * over licenseIds). Each complete runs the real revoke + ledger credit.
+ */
+export function ReclaimAllButton({
+  taskIds,
+  label,
+  className = 'btn btn-primary',
+}: {
+  taskIds: string[];
+  label: string;
+  className?: string;
+}) {
+  const {run, pending, error} = useMutation();
+  return (
+    <span>
+      <button
+        className={className}
+        disabled={pending || taskIds.length === 0}
+        onClick={() =>
+          run(
+            taskIds.map(
+              (id) => () =>
+                send(`/api/reclaim-tasks/${id}`, 'PATCH', {action: 'complete'}),
+            ),
+          )
+        }
+      >
+        {pending ? 'Working…' : label}
+      </button>
+      {error && <span className='error'> {error}</span>}
+    </span>
+  );
+}
+
 /** Raise a PO for a hire — POST /api/pos. Serial tag is generated client-side. */
 export function RaisePoForm({
   hires,
@@ -269,12 +372,12 @@ export function AssignSeatForm({
   hires,
   apps,
 }: {
-  hires: { id: string; name: string }[];
-  apps: { id: string; name: string; available: number; monthlyCost: number }[];
+  hires: {id: string; name: string}[];
+  apps: {id: string; name: string; available: number; monthlyCost: number}[];
 }) {
-  const { run, pending, error } = useMutation();
-  const [hireId, setHireId] = useState(hires[0]?.id ?? "");
-  const [appId, setAppId] = useState(apps[0]?.id ?? "");
+  const {run, pending, error} = useMutation();
+  const [hireId, setHireId] = useState(hires[0]?.id ?? '');
+  const [appId, setAppId] = useState(apps[0]?.id ?? '');
 
   const selected = apps.find((a) => a.id === appId);
   const monthly = selected?.monthlyCost ?? 0;
@@ -282,25 +385,25 @@ export function AssignSeatForm({
 
   return (
     <form
-      style={{ display: "flex", flexDirection: "column", gap: 12 }}
+      style={{display: 'flex', flexDirection: 'column', gap: 12}}
       onSubmit={(e) => {
         e.preventDefault();
-        run([() => send("/api/licenses", "POST", { hireId, appId })]);
+        run([() => send('/api/licenses', 'POST', {hireId, appId})]);
       }}
     >
       <div
         style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-end",
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-end',
           gap: 12,
         }}
       >
-        <div className="field" style={{ flex: "1 1 180px" }}>
-          <label htmlFor="seat-hire">For</label>
+        <div className='field' style={{flex: '1 1 180px'}}>
+          <label htmlFor='seat-hire'>For</label>
           <select
-            id="seat-hire"
-            className="input"
+            id='seat-hire'
+            className='input'
             value={hireId}
             onChange={(e) => setHireId(e.target.value)}
           >
@@ -311,38 +414,35 @@ export function AssignSeatForm({
             ))}
           </select>
         </div>
-        <div className="field" style={{ flex: "1 1 180px" }}>
-          <label htmlFor="seat-app">Seat</label>
+        <div className='field' style={{flex: '1 1 180px'}}>
+          <label htmlFor='seat-app'>Seat</label>
           <select
-            id="seat-app"
-            className="input"
+            id='seat-app'
+            className='input'
             value={appId}
             onChange={(e) => setAppId(e.target.value)}
           >
             {apps.map((a) => (
               <option key={a.id} value={a.id} disabled={a.available <= 0}>
-                {a.name}{" "}
-                {a.available <= 0 ? "(no seats left)" : `(${a.available} left)`}
+                {a.name}{' '}
+                {a.available <= 0 ? '(no seats left)' : `(${a.available} left)`}
               </option>
             ))}
           </select>
         </div>
         <button
-          className="btn btn-primary"
-          style={{ flex: "0 0 auto" }}
+          className='btn btn-primary'
+          style={{flex: '0 0 auto'}}
           disabled={pending || !hireId || !appId}
         >
-          {pending ? "Assigning…" : "Assign seat"}
+          {pending ? 'Assigning…' : 'Assign seat'}
         </button>
       </div>
-      <div
-        className="meter-head"
-        style={{ fontSize: 13, alignItems: "center" }}
-      >
-        <span className="muted">Adds to recurring burn</span>
-        <span className="count">{costText}</span>
+      <div className='meter-head' style={{fontSize: 13, alignItems: 'center'}}>
+        <span className='muted'>Adds to recurring burn</span>
+        <span className='count'>{costText}</span>
       </div>
-      {error && <span className="error">{error}</span>}
+      {error && <span className='error'>{error}</span>}
     </form>
   );
 }

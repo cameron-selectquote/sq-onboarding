@@ -1,5 +1,5 @@
 import { createMemoryRepository } from "@/lib/memory-repository";
-import type { Company } from "@/lib/types";
+import type { Company, ReclaimTask } from "@/lib/types";
 
 describe("MemoryRepository collection", () => {
   const company: Company = { id: "c1", name: "Acme", size: 10, industry: "x" };
@@ -54,5 +54,28 @@ describe("MemoryRepository collection", () => {
     got!.name = "mutated";
     const again = await repo.companies.get("c1");
     expect(again!.name).toBe("Acme");
+  });
+
+  it("round-trips a ReclaimTask (null timestamps), updates and filters it", async () => {
+    const repo = createMemoryRepository();
+    const task: ReclaimTask = {
+      id: "rt1",
+      licenseId: "lic_7",
+      status: "pending",
+      createdByTeam: "finance",
+      createdAt: "2026-02-01T00:00:00.000Z",
+      completedAt: null,
+      cancelledAt: null,
+    };
+    await repo.reclaimTasks.insert(task);
+    expect(await repo.reclaimTasks.get("rt1")).toEqual(task);
+
+    const updated = await repo.reclaimTasks.update("rt1", {
+      status: "reclaiming",
+    });
+    expect(updated.status).toBe("reclaiming");
+
+    const open = await repo.reclaimTasks.where((t) => t.licenseId === "lic_7");
+    expect(open.map((t) => t.id)).toEqual(["rt1"]);
   });
 });

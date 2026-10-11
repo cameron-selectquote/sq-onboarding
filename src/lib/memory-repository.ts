@@ -19,6 +19,7 @@ import type {
   LedgerEntry,
   License,
   Notification,
+  ReclaimTask,
   Task,
   Template,
   TemplateTask,
@@ -92,6 +93,7 @@ export class MemoryRepository implements Repository {
   ledgerEntries = new MemoryCollection<LedgerEntry>();
   notifications = new MemoryCollection<Notification>();
   candidates = new MemoryCollection<Candidate>();
+  reclaimTasks = new MemoryCollection<ReclaimTask>();
 
   /** Empty every collection. Covers any collection on this repo generically. */
   async reset(): Promise<void> {

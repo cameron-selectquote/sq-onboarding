@@ -4,9 +4,14 @@ import {
   budgetBurnDown,
   burnDelta,
   costPerHire,
+  buildBvA,
   cumulativeRecurringBurn,
   financeSummary,
+  forecastBurn,
   isOverspent,
+  quarterLabel,
+  quarterMonths,
+  reclaimImpact,
   monthlyCost,
   monthlySpend,
   monthOverMonth,
@@ -14,9 +19,9 @@ import {
   yearOverYear,
   recurringAddedSince,
   recurringMonthlyBurn,
-  reclaimable,
   residualValue,
 } from "@/lib/finance";
+import type { BvAReport } from "@/lib/finance";
 import type {
   AppCatalogItem,
   Asset,
@@ -103,28 +108,6 @@ describe("residualValue", () => {
   it("clamps to zero past full depreciation", () => {
     const asset: Asset = { id: "a1", catalogId: "mbp", serialTag: "x", status: "assigned", assignedToHireId: "h1", acquiredAt: "2020-01-01", returnedAt: null };
     expect(residualValue(assetCatalog[0]!, asset, new Date("2026-01-01"))).toBe(0);
-  });
-});
-
-describe("reclaimable", () => {
-  it("sums idle/reclaim license burn plus returned asset residual", () => {
-    const licenses: License[] = [
-      { id: "l1", hireId: "h1", appId: "github", status: "idle", grantedAt: null, lastUsedAt: null },
-      { id: "l2", hireId: "h1", appId: "github", status: "active", grantedAt: null, lastUsedAt: null },
-    ];
-    const assets: Asset[] = [
-      { id: "a1", catalogId: "mbp", serialTag: "x", status: "returned", assignedToHireId: null, acquiredAt: "2026-01-01", returnedAt: "2026-01-01" },
-    ];
-    const result = reclaimable(licenses, apps, assets, assetCatalog);
-    // 21 (idle github monthly) + 2400 residual (returned same day it was acquired)
-    expect(result).toBe(2421);
-  });
-
-  it("does not count a requested (waiting) license as reclaimable", () => {
-    const licenses: License[] = [
-      { id: "l1", hireId: "h1", appId: "github", status: "requested", grantedAt: null, lastUsedAt: null },
-    ];
-    expect(reclaimable(licenses, apps, [], assetCatalog)).toBe(0);
   });
 });
 
@@ -300,6 +283,149 @@ describe("burnDelta", () => {
   });
 });
 
+describe("forecastBurn", () => {
+  const pts = (xs: number[], startMonth = 1) =>
+    xs.map((burn, i) => ({ month: `2026-${String(startMonth + i).padStart(2, "0")}`, burn }));
+
+  it("projects a steady upward slope forward", () => {
+    // burn rising by 10/mo: 10,20,30,40 -> next should be 50, 60, 70
+    const f = forecastBurn(pts([10, 20, 30, 40]), 3);
+    expect(f.map((p) => p.burn)).toEqual([50, 60, 70]);
+    expect(f.map((p) => p.month)).toEqual(["2026-05", "2026-06", "2026-07"]);
+    expect(f.every((p) => p.projected)).toBe(true);
+  });
+
+  it("holds flat when the trend is flat", () => {
+    const f = forecastBurn(pts([100, 100, 100]), 2);
+    expect(f.map((p) => p.burn)).toEqual([100, 100]);
+  });
+
+  it("clamps projected burn at zero on a declining trend", () => {
+    // steep decline would go negative; must clamp to 0
+    const f = forecastBurn(pts([30, 20, 10]), 3);
+    expect(f.every((p) => p.burn >= 0)).toBe(true);
+    expect(f[f.length - 1]!.burn).toBe(0);
+  });
+
+  it("rolls the month key across a year boundary", () => {
+    const f = forecastBurn(pts([10, 20], 11), 3); // last month = 2026-12
+    expect(f.map((p) => p.month)).toEqual(["2027-01", "2027-02", "2027-03"]);
+  });
+
+  it("returns nothing without enough data or months", () => {
+    expect(forecastBurn([], 3)).toEqual([]);
+    expect(forecastBurn(pts([10]), 3)).toEqual([]);
+    expect(forecastBurn(pts([10, 20]), 0)).toEqual([]);
+  });
+});
+
+describe("quarterMonths / quarterLabel", () => {
+  it("returns the three months and label of the containing quarter", () => {
+    expect(quarterMonths(new Date("2026-02-15T00:00:00Z"))).toEqual(["2026-01", "2026-02", "2026-03"]);
+    expect(quarterMonths(new Date("2026-11-01T00:00:00Z"))).toEqual(["2026-10", "2026-11", "2026-12"]);
+    expect(quarterLabel(new Date("2026-02-15T00:00:00Z"))).toBe("2026-Q1");
+    expect(quarterLabel(new Date("2026-08-01T00:00:00Z"))).toBe("2026-Q3");
+  });
+});
+
+describe("buildBvA", () => {
+  const entry = (amount: number, costType: "recurring" | "one_time", createdAt: string): LedgerEntry =>
+    ({ id: createdAt + amount, hireId: "h1", type: "fee", label: "x", amount, costType, refTable: null, refId: null, createdAt });
+
+  it("builds actual (reset at quarter start), forecast beyond today, and variances", () => {
+    // Q1 2026. asOf = mid-Feb -> Jan past, Feb current, Mar future.
+    // Jan: 100 recurring. Feb: 50 recurring + 2000 one-time PO.
+    const entries = [
+      entry(100, "recurring", "2026-01-10T00:00:00Z"),
+      entry(50, "recurring", "2026-02-05T00:00:00Z"),
+      entry(2000, "one_time", "2026-02-20T00:00:00Z"),
+      entry(999, "recurring", "2025-12-31T00:00:00Z"), // prior quarter — must be excluded by reset
+    ];
+    const bva = buildBvA({
+      ledgerEntries: entries,
+      budgetLimit: 3000,
+      monthlyRecurringForecast: 150,
+      asOf: new Date("2026-02-15T00:00:00Z"),
+    });
+
+    expect(bva.quarter).toBe("2026-Q1");
+    // Jan cumulative = 100; Feb cumulative = 100 + 50 + 2000 = 2150 (Dec excluded)
+    expect(bva.months[0]).toMatchObject({ month: "2026-01", actual: 100 });
+    expect(bva.months[1]).toMatchObject({ month: "2026-02", actual: 2150 });
+    // Mar is future: forecast = 2150 + 150 = 2300, actual null
+    expect(bva.months[2]).toMatchObject({ month: "2026-03", actual: null, forecast: 2300 });
+
+    expect(bva.actualToDate).toBe(2150);
+    expect(bva.projectedEndOfQuarter).toBe(2300);
+    // budget prorated to 2 of 3 months = 2000
+    expect(bva.budgetToDate).toBeCloseTo(2000);
+    expect(bva.varianceToDate).toBeCloseTo(150); // 2150 - 2000
+    expect(bva.projectedVariance).toBe(-700);    // 2300 - 3000 (under)
+    expect(bva.crossoverMonth).toBeNull();        // never exceeds 3000
+  });
+
+  it("reports remaining forecast months in the quarter", () => {
+    // asOf mid-Feb -> Jan+Feb elapsed, Mar remaining = 1
+    const bva = buildBvA({ ledgerEntries: [], budgetLimit: 3000, monthlyRecurringForecast: 100, asOf: new Date("2026-02-15T00:00:00Z") });
+    expect(bva.remainingMonths).toBe(1);
+    // asOf early Jan -> only Jan elapsed, Feb+Mar remaining = 2
+    const bva2 = buildBvA({ ledgerEntries: [], budgetLimit: 3000, monthlyRecurringForecast: 100, asOf: new Date("2026-01-05T00:00:00Z") });
+    expect(bva2.remainingMonths).toBe(2);
+  });
+
+  it("flags the crossover month when the line breaches the budget", () => {
+    const entries = [
+      entry(2800, "one_time", "2026-01-10T00:00:00Z"), // Jan already near ceiling
+      entry(300, "recurring", "2026-02-05T00:00:00Z"), // Feb pushes over 3000
+    ];
+    const bva = buildBvA({
+      ledgerEntries: entries,
+      budgetLimit: 3000,
+      monthlyRecurringForecast: 300,
+      asOf: new Date("2026-02-15T00:00:00Z"),
+    });
+    // Jan=2800 (under), Feb=3100 (over) -> crossover in Feb
+    expect(bva.crossoverMonth).toBe("2026-02");
+    expect(bva.projectedVariance).toBeGreaterThan(0); // projected over budget
+  });
+});
+
+describe("reclaimImpact", () => {
+  const bvaWith = (projectedVariance: number, remainingMonths: number): BvAReport => ({
+    quarter: "2026-Q1",
+    months: [],
+    budget: 3000,
+    actualToDate: 0,
+    projectedEndOfQuarter: 3000 + projectedVariance,
+    budgetToDate: 0,
+    varianceToDate: 0,
+    projectedVariance,
+    crossoverMonth: null,
+    remainingMonths,
+  });
+
+  it("compounds monthly reclaimable over remaining months and clears the overage", () => {
+    // projected $150 over, 2 months left, $100/mo reclaimable -> saves $200 -> under
+    const impact = reclaimImpact(bvaWith(150, 2), 100);
+    expect(impact.quarterSavings).toBe(200);
+    expect(impact.projectedVarianceAfter).toBe(-50);
+    expect(impact.bringsUnderBudget).toBe(true);
+  });
+
+  it("does not clear the overage when reclaim is too small", () => {
+    // projected $500 over, 1 month left, $100/mo reclaimable -> saves $100 -> still over
+    const impact = reclaimImpact(bvaWith(500, 1), 100);
+    expect(impact.quarterSavings).toBe(100);
+    expect(impact.projectedVarianceAfter).toBe(400);
+    expect(impact.bringsUnderBudget).toBe(false);
+  });
+
+  it("is not 'brings under budget' when already under", () => {
+    const impact = reclaimImpact(bvaWith(-200, 2), 100);
+    expect(impact.bringsUnderBudget).toBe(false);
+  });
+});
+
 describe("assetsOnHand", () => {
   it("counts only in_stock assets", () => {
     const assets: Asset[] = [
@@ -325,5 +451,10 @@ describe("financeSummary", () => {
     expect(summary.assetsOnHand).toBe(1);
     expect(summary.totalSpend).toBe(21);
     expect(summary.overspentTeams).toEqual(["it"]);
+    // The reclaim figures are filled in by getFinanceSummary() from the
+    // canonical reclaim engine; the pure assembler leaves them at 0 (and keeps
+    // the two units separate — recurring $/mo vs one-time asset $).
+    expect(summary.reclaimableRecurringMonthly).toBe(0);
+    expect(summary.reclaimableOneTimeAsset).toBe(0);
   });
 });

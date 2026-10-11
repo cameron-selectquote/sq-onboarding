@@ -19,6 +19,7 @@ import type {
   LedgerEntry,
   License,
   Notification,
+  ReclaimTask,
   Task,
   Template,
   TemplateTask,
@@ -53,6 +54,7 @@ export interface Repository {
   ledgerEntries: Collection<LedgerEntry>;
   notifications: Collection<Notification>;
   candidates: Collection<Candidate>;
+  reclaimTasks: Collection<ReclaimTask>;
   /**
    * Delete every record in every collection, returning the store to an empty
    * state. Reseeding is a separate step (see `loadSeed`). Intended for dev/test

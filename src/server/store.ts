@@ -21,6 +21,7 @@ import {
 } from '@/lib/sqlite-repository';
 import {LedgerService} from '@/lib/ledger';
 import {LicenseService} from '@/lib/licenses';
+import {ReclaimTaskService} from '@/lib/reclaim-tasks';
 import {AssetService} from '@/lib/assets';
 import {TemplateService} from '@/lib/templates';
 import {CandidateService} from '@/lib/candidates';
@@ -77,6 +78,7 @@ interface Services {
   repo: Repository;
   ledger: LedgerService;
   licenses: LicenseService;
+  reclaimTasks: ReclaimTaskService;
   assets: AssetService;
   templates: TemplateService;
   candidates: CandidateService;
@@ -112,6 +114,7 @@ function build(): {services: Services; repo: SqliteRepository} {
   const ledger = new LedgerService(repo);
   const templates = new TemplateService(repo);
   const licenses = new LicenseService(repo, ledger);
+  const reclaimTasks = new ReclaimTaskService(repo, licenses);
   const assets = new AssetService(repo, ledger);
   const notifications = new NotificationService(repo);
   return {
@@ -120,6 +123,7 @@ function build(): {services: Services; repo: SqliteRepository} {
       repo,
       ledger,
       licenses,
+      reclaimTasks,
       assets,
       templates,
       candidates: new CandidateService(repo, templates),

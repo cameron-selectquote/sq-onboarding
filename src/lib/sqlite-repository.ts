@@ -33,6 +33,7 @@ import type {
   LedgerEntry,
   License,
   Notification,
+  ReclaimTask,
   Task,
   Template,
   TemplateTask,
@@ -371,6 +372,21 @@ const SCHEMA = {
     },
     fieldTypes: {},
   } as SchemaEntry<Candidate>,
+  reclaimTasks: {
+    spec: {
+      table: 'reclaim_task',
+      columns: cols(
+        'id',
+        'licenseId',
+        'status',
+        'createdByTeam',
+        'createdAt',
+        'completedAt',
+        'cancelledAt',
+      ),
+    },
+    fieldTypes: {},
+  } as SchemaEntry<ReclaimTask>,
 } as const;
 
 /** Create every table if it doesn't already exist. */
@@ -400,6 +416,7 @@ export class SqliteRepository implements Repository {
   ledgerEntries: Collection<LedgerEntry>;
   notifications: Collection<Notification>;
   candidates: Collection<Candidate>;
+  reclaimTasks: Collection<ReclaimTask>;
 
   constructor(filename: string) {
     this.db = new Database(filename);
@@ -430,6 +447,10 @@ export class SqliteRepository implements Repository {
       SCHEMA.notifications.spec,
     );
     this.candidates = new SqliteCollection(this.db, SCHEMA.candidates.spec);
+    this.reclaimTasks = new SqliteCollection(
+      this.db,
+      SCHEMA.reclaimTasks.spec,
+    );
   }
 
   /** True if the store has no companies yet — used to decide whether to seed. */
