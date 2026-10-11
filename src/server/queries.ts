@@ -89,6 +89,8 @@ const WHY: Record<string, string> = {
 
 export interface QueueRow {
   key: string;
+  /** The reclaim reason this row aggregates (idle/reclaim/duplicate/role_mismatch). */
+  reason: string;
   what: string;
   why: string;
   licenseIds: string[];
@@ -117,6 +119,7 @@ function toQueueRows(
     const key = `${reason}:${app.id}`;
     const row = rows.get(key) ?? {
       key,
+      reason,
       what: reason === "duplicate" ? `Duplicate ${app.name} seats` : `${reason === "reclaim" ? "Flagged" : "Idle"} ${app.name} seats`,
       why: WHY[reason] ?? reason,
       licenseIds: [],
@@ -158,6 +161,62 @@ export async function getReclaimQueue(): Promise<{ rows: QueueRow[]; monthly: nu
 
   const rows = toQueueRows(report.licenseFlags, licenses, apps);
   return { rows, monthly: report.recurringMonthly };
+}
+
+/** Human labels + ordering for reclaim reasons in the waste breakdown. */
+const REASON_LABEL: Record<string, string> = {
+  idle: "Idle",
+  reclaim: "Flagged for reclaim",
+  duplicate: "Duplicate category",
+  role_mismatch: "Wrong role",
+};
+
+export interface WasteReason {
+  reason: string;
+  label: string;
+  /** Recoverable monthly spend from this reason. */
+  monthly: number;
+  /** Seats flagged for this reason. */
+  seats: number;
+}
+
+export interface ReclaimBreakdown {
+  /** One row per reclaim reason, biggest monthly first. */
+  reasons: WasteReason[];
+  /** Total recoverable monthly spend (sum across reasons). */
+  monthly: number;
+  /** Annualized recoverable spend (monthly × 12). */
+  annual: number;
+  /** Total flagged seats. */
+  seats: number;
+}
+
+/**
+ * Waste-by-reason breakdown for the reclaim page: the recoverable spend split by
+ * *why* it's reclaimable (idle / duplicate / wrong-role), plus the annualized
+ * total. Reads the same reclaim queue, so it stays consistent with everything
+ * else on the page.
+ */
+export async function getReclaimBreakdown(): Promise<ReclaimBreakdown> {
+  const { rows } = await getReclaimQueue();
+
+  const byReason = new Map<string, WasteReason>();
+  for (const row of rows) {
+    const existing = byReason.get(row.reason) ?? {
+      reason: row.reason,
+      label: REASON_LABEL[row.reason] ?? row.reason,
+      monthly: 0,
+      seats: 0,
+    };
+    existing.monthly += row.monthly;
+    existing.seats += row.licenseIds.length;
+    byReason.set(row.reason, existing);
+  }
+
+  const reasons = [...byReason.values()].sort((a, b) => b.monthly - a.monthly);
+  const monthly = reasons.reduce((acc, r) => acc + r.monthly, 0);
+  const seats = reasons.reduce((acc, r) => acc + r.seats, 0);
+  return { reasons, monthly, annual: monthly * 12, seats };
 }
 
 /**

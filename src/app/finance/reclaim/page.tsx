@@ -1,6 +1,5 @@
 import { getServices } from "@/server/store";
-import { getReclaimQueue } from "@/server/queries";
-import { costPerHire } from "@/lib/finance";
+import { getBudgetVsActual, getReclaimBreakdown, getReclaimQueue } from "@/server/queries";
 import { Meter, Shell } from "../../_components/Shell";
 import { LicenseButton } from "../../_components/actions";
 import { money } from "../../_components/format";
@@ -10,32 +9,29 @@ export const dynamic = "force-dynamic";
 
 /** Finance reclaim-first (design 2d): what we can take back right now. */
 export default async function FinanceReclaim() {
-  const { repo } = await getServices();
-  const [{ rows: queue, monthly: recoverable }, entries, hires] = await Promise.all([
+  const [{ rows: queue, monthly: recoverable }, breakdown, { bva, reclaim }] = await Promise.all([
     getReclaimQueue(),
-    repo.ledgerEntries.list(),
-    repo.hires.list(),
+    getReclaimBreakdown(),
+    getBudgetVsActual(),
   ]);
 
-  // Average ledger spend per hire, grouped by role.
-  const byRole = new Map<string, number[]>();
-  for (const h of hires) {
-    const spend = costPerHire(entries, h.id);
-    if (spend === 0) continue;
-    byRole.set(h.roleName, [...(byRole.get(h.roleName) ?? []), spend]);
-  }
-  const roleCosts = [...byRole].map(([role, xs]) => ({ role, avg: xs.reduce((a, b) => a + b, 0) / xs.length }));
-  roleCosts.sort((a, b) => b.avg - a.avg);
-  const maxRole = roleCosts[0]?.avg ?? 0;
+  const maxReason = Math.max(1, ...breakdown.reasons.map((r) => r.monthly));
+  // Share of this quarter's projected overage that reclaiming would cover.
+  const overageCoverage =
+    bva.projectedVariance > 0 ? Math.min(100, Math.round((reclaim.quarterSavings / bva.projectedVariance) * 100)) : null;
 
   return (
     <Shell nav={FINANCE_NAV} active="/finance/reclaim" who="Finance">
       <div className="banner">
         <div className="banner-text">
-          <span style={{ fontSize: 13 }}>Recoverable right now</span>
-          <span className="banner-value">{money(Math.round(recoverable * 100) / 100)}/mo</span>
+          <span style={{ fontSize: 13 }}>Recoverable spend</span>
+          <span className="banner-value">{money(Math.round(breakdown.annual))}/yr</span>
           <span style={{ fontSize: 14 }}>
-            {queue.length === 0 ? "Nothing to reclaim. Nice." : `across ${queue.reduce((a, r) => a + r.licenseIds.length, 0)} seats`}
+            {breakdown.seats === 0
+              ? "Nothing to reclaim. Nice."
+              : `${money(Math.round(recoverable))}/mo across ${breakdown.seats} seats${
+                  overageCoverage !== null ? ` · covers ${overageCoverage}% of the ${bva.quarter} overage` : ""
+                }`}
           </span>
         </div>
         <LicenseButton
@@ -64,10 +60,16 @@ export default async function FinanceReclaim() {
           </div>
         </section>
         <section className="panel">
-          <span className="panel-title">Cost per hire, by role</span>
-          {roleCosts.length === 0 && <span className="empty">No spend on the ledger yet.</span>}
-          {roleCosts.map((c) => (
-            <Meter key={c.role} label={c.role} value={money(Math.round(c.avg))} pct={(c.avg / maxRole) * 100} hot />
+          <span className="panel-title">Where the waste is</span>
+          {breakdown.reasons.length === 0 && <span className="empty">No reclaimable seats right now.</span>}
+          {breakdown.reasons.map((r) => (
+            <Meter
+              key={r.reason}
+              label={r.label}
+              value={`${money(Math.round(r.monthly))}/mo`}
+              pct={(r.monthly / maxReason) * 100}
+              note={`${r.seats} seat${r.seats === 1 ? "" : "s"} · ${money(Math.round(r.monthly * 12))}/yr`}
+            />
           ))}
         </section>
       </div>
