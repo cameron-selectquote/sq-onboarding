@@ -1,4 +1,4 @@
-import { getBudgetVsActual, getReclaimBreakdown, getReclaimJobs, getReclaimQueue } from "@/server/queries";
+import { filterQueueForInFlight, getBudgetVsActual, getReclaimBreakdown, getReclaimJobs, getReclaimQueue } from "@/server/queries";
 import { Meter, Shell } from "../../_components/Shell";
 import { ReclaimButton } from "../../_components/actions";
 import { money } from "../../_components/format";
@@ -8,14 +8,22 @@ export const dynamic = "force-dynamic";
 
 /** Finance reclaim-first (design 2d): what we can take back right now. */
 export default async function FinanceReclaim() {
-  const [{ rows: queue, monthly: recoverable }, breakdown, { bva, reclaim }, { jobs, counts }] = await Promise.all([
+  const [{ rows: allRows, monthly: recoverable }, breakdown, { bva, reclaim }, { jobs, counts }] = await Promise.all([
     getReclaimQueue(),
     getReclaimBreakdown(),
     getBudgetVsActual(),
     getReclaimJobs(),
   ]);
 
+  // A seat with an open job (pending/reclaiming) is in flight with IT: drop it
+  // from the actionable queue so finance can't re-flag it. Its $/mo still rides
+  // in the banner/breakdown (recoverable, from the unchanged report) — the money
+  // is in flight, not yet recovered. Only the clickable rows filter.
+  const inFlightLicenseIds = new Set(jobs.map((j) => j.licenseId));
+  const queue = filterQueueForInFlight(allRows, inFlightLicenseIds);
+
   // Jobs finance kicked off — surfaced so finance can watch IT execute them.
+  // This panel is now where in-flight seats live after leaving the queue above.
   const financeJobs = jobs.filter((j) => j.createdByTeam === "finance");
 
   const maxReason = Math.max(1, ...breakdown.reasons.map((r) => r.monthly));
@@ -47,7 +55,13 @@ export default async function FinanceReclaim() {
       <div className="split-wide">
         <section className="panel" style={{ gap: 4 }}>
           <span className="panel-title" style={{ paddingBottom: 8 }}>Reclaim queue</span>
-          {queue.length === 0 && <span className="empty">No idle, flagged or duplicate seats.</span>}
+          {queue.length === 0 && (
+            <span className="empty">
+              {breakdown.seats === 0
+                ? "No idle, flagged or duplicate seats."
+                : "All flagged seats are in flight with IT."}
+            </span>
+          )}
           <div className="rows">
             {queue.map((r) => {
               // A single-seat "group" isn't a group — show it as one plain row

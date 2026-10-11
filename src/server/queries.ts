@@ -201,6 +201,39 @@ export async function getReclaimQueue(): Promise<{
   };
 }
 
+/**
+ * Drop seats that already have an open reclaim job from the actionable queue
+ * rows, WITHOUT touching the recoverable totals.
+ *
+ * Finance-page presenter only (BuildPlan reclaim-tracked-jobs, Option B): once a
+ * seat has an open job (ReclaimTask 'pending'/'reclaiming'), it must stop
+ * appearing as a clickable queue row so finance can't re-flag it — but its $/mo
+ * stays in the banner/breakdown because the money is in flight, not recovered.
+ * So this filters the *rows only*; it never recomputes or exposes a total.
+ * Pure over its inputs: `rows` from getReclaimQueue, `inFlightLicenseIds` from
+ * getReclaimJobs. A row whose seats are all in flight is removed entirely; a
+ * partially-in-flight row keeps its remaining seats, with licenseIds/monthly/
+ * seats recomputed to match what's still actionable.
+ */
+export function filterQueueForInFlight(
+  rows: QueueRow[],
+  inFlightLicenseIds: ReadonlySet<string>,
+): QueueRow[] {
+  if (inFlightLicenseIds.size === 0) return rows;
+  const filtered: QueueRow[] = [];
+  for (const row of rows) {
+    const seats = row.seats.filter((s) => !inFlightLicenseIds.has(s.licenseId));
+    if (seats.length === 0) continue;
+    filtered.push({
+      ...row,
+      seats,
+      licenseIds: seats.map((s) => s.licenseId),
+      monthly: seats.reduce((acc, s) => acc + s.monthly, 0),
+    });
+  }
+  return filtered;
+}
+
 /** Human labels + ordering for reclaim reasons in the waste breakdown. */
 const REASON_LABEL: Record<string, string> = {
   idle: "Idle",

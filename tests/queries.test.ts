@@ -13,7 +13,8 @@
 // its DB path (it does so lazily on first getServices()).
 process.env.PROVISION_DB_PATH = ":memory:";
 
-import { getFinanceSummary, getReclaimQueue } from "@/server/queries";
+import { filterQueueForInFlight, getFinanceSummary, getReclaimQueue } from "@/server/queries";
+import type { QueueRow } from "@/server/queries";
 import { getServices } from "@/server/store";
 import { buildReclaimReport } from "@/lib/reclaim";
 import { OFFBOARDING_COHORT } from "@/data/seed";
@@ -62,5 +63,55 @@ describe("getFinanceSummary / getReclaimQueue reconciliation", () => {
     // Both reclaim units are present and strictly separate — never summed.
     expect(report.recurringMonthly).toBeGreaterThan(0);
     expect(report.oneTimeAssetResidual).toBeGreaterThan(0);
+  });
+});
+
+describe("filterQueueForInFlight (finance queue presenter)", () => {
+  const row = (
+    key: string,
+    seats: Array<{ licenseId: string; monthly: number }>,
+  ): QueueRow => ({
+    key,
+    reason: "idle",
+    what: key,
+    why: "test",
+    licenseIds: seats.map((s) => s.licenseId),
+    monthly: seats.reduce((acc, s) => acc + s.monthly, 0),
+    seats: seats.map((s) => ({
+      licenseId: s.licenseId,
+      hireName: null,
+      app: "GitHub",
+      monthly: s.monthly,
+      detail: "test",
+    })),
+  });
+
+  it("returns rows unchanged when nothing is in flight", () => {
+    const rows = [row("r1", [{ licenseId: "l1", monthly: 10 }])];
+    expect(filterQueueForInFlight(rows, new Set())).toBe(rows);
+  });
+
+  it("drops a seat with an open job from the actionable rows", () => {
+    const rows = [row("r1", [{ licenseId: "l1", monthly: 10 }])];
+    const out = filterQueueForInFlight(rows, new Set(["l1"]));
+    // In-flight seat is gone from the clickable queue...
+    expect(out).toHaveLength(0);
+    // ...but we never recomputed or exposed a recoverable total here: the
+    // banner/breakdown still read the unchanged report, which keeps l1's $/mo.
+    expect(rows[0]!.monthly).toBe(10);
+  });
+
+  it("keeps the remaining seats of a partially in-flight row and recomputes its total", () => {
+    const rows = [
+      row("r1", [
+        { licenseId: "l1", monthly: 10 },
+        { licenseId: "l2", monthly: 7 },
+      ]),
+    ];
+    const out = filterQueueForInFlight(rows, new Set(["l1"]));
+    expect(out).toHaveLength(1);
+    expect(out[0]!.licenseIds).toEqual(["l2"]);
+    expect(out[0]!.seats.map((s) => s.licenseId)).toEqual(["l2"]);
+    expect(out[0]!.monthly).toBe(7);
   });
 });
