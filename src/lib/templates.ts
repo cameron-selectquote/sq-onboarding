@@ -16,7 +16,6 @@ import {
   type Clock,
   type IdGenerator,
 } from "./ids";
-import { assignedSeats } from "./seats";
 import type { Repository } from "./repository";
 import type { License, Task } from "./types";
 
@@ -25,22 +24,10 @@ export interface TemplateServiceOptions {
   clock?: Clock;
 }
 
-/** A seat that couldn't be granted on import because the pool was full. */
-export interface DeferredSeat {
-  appId: string;
-  appName: string;
-}
-
 export interface InstantiateResult {
   tasks: Task[];
-  /** Seats actually granted (active). */
+  /** Seats granted (active) for this hire. */
   licenses: License[];
-  /**
-   * Seats that couldn't be granted because the app's pool was full. They are
-   * created as pending (requested-but-not-granted) licenses so they land in
-   * IT's "Seats waiting" queue instead of over-allocating.
-   */
-  deferred: DeferredSeat[];
 }
 
 export class TemplateService {
@@ -91,38 +78,20 @@ export class TemplateService {
     }
 
     const licenses: License[] = [];
-    const deferred: DeferredSeat[] = [];
     const grantedAt = this.now().toISOString();
 
-    // Snapshot existing licenses; track in-batch grants so requesting more
-    // seats than remain in a pool defers the overflow rather than over-granting.
-    const poolLicenses = await this.repo.licenses.list();
-
     for (const appId of appIds) {
-      const app = await this.repo.appCatalog.get(appId);
-      // Unknown app: fall back to granting active (no pool to enforce).
-      const hasRoom = app ? assignedSeats(app, poolLicenses) < app.seatsOwned : true;
-
       const license: License = {
         id: this.nextId(),
         hireId,
         appId,
-        // Granted when there's room; otherwise created as `requested` so it
-        // shows in IT's "Seats waiting" queue (holds no seat, no ledger spend).
-        status: hasRoom ? "active" : "requested",
-        grantedAt: hasRoom ? grantedAt : null,
-        lastUsedAt: hasRoom ? grantedAt : null,
+        status: "active",
+        grantedAt,
+        lastUsedAt: grantedAt,
       };
-      const created = await this.repo.licenses.insert(license);
-      poolLicenses.push(created); // next seat in this batch sees the pool fill
-
-      if (hasRoom) {
-        licenses.push(created);
-      } else if (app) {
-        deferred.push({ appId, appName: app.name });
-      }
+      licenses.push(await this.repo.licenses.insert(license));
     }
 
-    return { tasks, licenses, deferred };
+    return { tasks, licenses };
   }
 }

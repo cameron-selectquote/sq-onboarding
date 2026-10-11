@@ -373,7 +373,7 @@ export function AssignSeatForm({
   apps,
 }: {
   hires: {id: string; name: string}[];
-  apps: {id: string; name: string; available: number; monthlyCost: number}[];
+  apps: {id: string; name: string; monthlyCost: number}[];
 }) {
   const {run, pending, error} = useMutation();
   const [hireId, setHireId] = useState(hires[0]?.id ?? '');
@@ -423,9 +423,8 @@ export function AssignSeatForm({
             onChange={(e) => setAppId(e.target.value)}
           >
             {apps.map((a) => (
-              <option key={a.id} value={a.id} disabled={a.available <= 0}>
-                {a.name}{' '}
-                {a.available <= 0 ? '(no seats left)' : `(${a.available} left)`}
+              <option key={a.id} value={a.id}>
+                {a.name}
               </option>
             ))}
           </select>

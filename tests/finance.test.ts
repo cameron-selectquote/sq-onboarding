@@ -69,12 +69,6 @@ describe("recurringMonthlyBurn", () => {
     expect(recurringMonthlyBurn(licenses, apps)).toBe(31);
   });
 
-  it("does not count a requested (waiting) license toward burn", () => {
-    const licenses: License[] = [
-      { id: "l1", hireId: "h1", appId: "github", status: "requested", grantedAt: null, lastUsedAt: null },
-    ];
-    expect(recurringMonthlyBurn(licenses, apps)).toBe(0);
-  });
 });
 
 describe("projectedRunRate", () => {

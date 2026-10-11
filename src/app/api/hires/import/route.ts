@@ -34,8 +34,6 @@ export async function POST(req: Request) {
     hire: Hire;
     taskCount: number;
     licenseCount: number;
-    deferredCount: number;
-    deferred: { appId: string; appName: string }[];
   }[] = [];
 
   for (const row of body.rows) {
@@ -63,7 +61,6 @@ export async function POST(req: Request) {
 
     let taskCount = 0;
     let licenseCount = 0;
-    let deferred: { appId: string; appName: string }[] = [];
     if (template) {
       const result = await templates.instantiateForHire(
         hire.id,
@@ -72,15 +69,12 @@ export async function POST(req: Request) {
       );
       taskCount = result.tasks.length;
       licenseCount = result.licenses.length;
-      deferred = result.deferred;
     }
 
     created.push({
       hire,
       taskCount,
       licenseCount,
-      deferredCount: deferred.length,
-      deferred,
     });
   }
 

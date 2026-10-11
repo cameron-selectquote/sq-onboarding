@@ -1,11 +1,11 @@
 import {notFound} from 'next/navigation';
 import {getServices} from '@/server/store';
-import {getReclaimJobs, getSeatPools} from '@/server/queries';
+import {getReclaimJobs} from '@/server/queries';
+import {monthlyCost} from '@/lib/finance';
 import type {Task, TaskStatus} from '@/lib/types';
 import {Avatar, PageHead, SegLinks, Shell} from '../../_components/Shell';
 import {
   AssignSeatForm,
-  LicenseButton,
   MarkReadButton,
   RaisePoForm,
   ReclaimAllButton,
@@ -63,19 +63,17 @@ export default async function TeamQueue({
   const tab = TABS.find((t) => t.key === status) ?? TABS[0]!;
 
   const {repo, notifications: notifier} = await getServices();
-  const [hires, allTasks, assets, assetCatalog, licenses, apps, inbox] =
+  const [hires, allTasks, assets, assetCatalog, apps, inbox] =
     await Promise.all([
       repo.hires.list(),
       repo.tasks.where((t) => t.ownerTeam === team),
       repo.assets.where((a) => a.status === 'in_stock'),
       repo.assetCatalog.list(),
-      repo.licenses.list(),
       repo.appCatalog.list(),
       notifier.forTeam(team),
     ]);
   const unreadCount = inbox.filter((n) => !n.read).length;
   const hireById = new Map(hires.map((h) => [h.id, h]));
-  const appById = new Map(apps.map((a) => [a.id, a]));
   const startOf = (t: Task) => hireById.get(t.hireId)?.startDate ?? '';
   const tasks = allTasks
     .filter((t) => tab.statuses.includes(t.status))
@@ -89,14 +87,9 @@ export default async function TeamQueue({
       n: assets.filter((a) => a.catalogId === c.id).length,
     }))
     .filter((c) => c.n > 0);
-  // Requested-but-not-granted seats: IT grants them from the queue.
-  const requested = licenses.filter((l) => l.status === 'requested');
   // IT-only: open reclaim jobs IT executes (finance flags, IT runs them).
   const reclaimJobs = team === 'it' ? (await getReclaimJobs()).jobs : [];
   const base = `/team/${team}`;
-  // Seat pools for the IT "assign an extra seat" form: only apps we own seats
-  // for, so the dropdown reflects real remaining capacity.
-  const pools = team === 'it' ? await getSeatPools() : [];
 
   // IT-only "Reclaim" tab, selected by a URL param on the same route. The open
   // count (pending + reclaiming) is already what getReclaimJobs() returns.
@@ -265,11 +258,10 @@ export default async function TeamQueue({
                   </span>
                   <AssignSeatForm
                     hires={hires.map((h) => ({id: h.id, name: h.name}))}
-                    apps={pools.map((p) => ({
-                      id: p.appId,
-                      name: p.name,
-                      available: p.available,
-                      monthlyCost: p.monthlyCost,
+                    apps={apps.map((a) => ({
+                      id: a.id,
+                      name: a.name,
+                      monthlyCost: monthlyCost(a.costPerSeat, a.billing),
                     }))}
                   />
                 </section>
@@ -346,48 +338,6 @@ export default async function TeamQueue({
                   <span className='count'>{v.n}</span>
                 </div>
               ))}
-            </section>
-          )}
-
-          {team === 'it' && (
-            <section
-              className='turn'
-              style={{
-                background: 'var(--color-accent-100)',
-                color: 'var(--color-accent-900)',
-              }}
-            >
-              <span style={{fontWeight: 700, fontSize: 14}}>Seats waiting</span>
-              {requested.length === 0 && (
-                <span style={{fontSize: 13}}>
-                  Every requested seat is granted.
-                </span>
-              )}
-              {requested.map((l) => (
-                <div
-                  key={l.id}
-                  className='row row-seat'
-                  style={{padding: '4px 0', borderTop: 0}}
-                >
-                  <span style={{fontSize: 13}}>
-                    {appById.get(l.appId)?.name} ·{' '}
-                    {hireById.get(l.hireId)?.name}
-                  </span>
-                  <LicenseButton
-                    action='grant'
-                    label='Grant'
-                    licenseIds={[l.id]}
-                  />
-                </div>
-              ))}
-              {requested.length > 1 && (
-                <LicenseButton
-                  className='btn btn-primary'
-                  action='grant'
-                  label={`Grant ${requested.length} seats`}
-                  licenseIds={requested.map((l) => l.id)}
-                />
-              )}
             </section>
           )}
 
