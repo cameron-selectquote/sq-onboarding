@@ -12,9 +12,11 @@ export async function POST(
     const license = await licenses.grant(id);
     return NextResponse.json({ license });
   } catch (err) {
+    // Full pool → 409 (the license stays `requested`); other errors → 400.
+    const outOfSeats = (err as { code?: string }).code === "no_seats_available";
     return NextResponse.json(
       { error: (err as Error).message },
-      { status: 400 },
+      { status: outOfSeats ? 409 : 400 },
     );
   }
 }

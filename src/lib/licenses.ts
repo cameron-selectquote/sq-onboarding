@@ -11,23 +11,100 @@
 
 import { LedgerService } from "./ledger";
 import { monthlyCost } from "./finance";
+import { assignedSeats } from "./seats";
+import {
+  defaultClock,
+  defaultIdGenerator,
+  type Clock,
+  type IdGenerator,
+} from "./ids";
 import type { Repository } from "./repository";
-import type { License } from "./types";
+import type { AppCatalogItem, License } from "./types";
+
+export interface LicenseServiceOptions {
+  idGenerator?: IdGenerator;
+  clock?: Clock;
+}
+
+/**
+ * Thrown when assigning a seat the company has no capacity for.
+ *
+ * Carries a stable `code` string so callers can identify it without relying on
+ * `instanceof`, which is unreliable across Next.js module/bundle boundaries
+ * (the class can be duplicated, so `instanceof` returns false at runtime).
+ */
+export class NoSeatsAvailableError extends Error {
+  readonly code = "no_seats_available" as const;
+  constructor(appName: string) {
+    super(`No ${appName} seats available — reclaim one or raise the owned count`);
+    this.name = "NoSeatsAvailableError";
+  }
+}
 
 export class LicenseService {
   private readonly repo: Repository;
   private readonly ledger: LedgerService;
+  private readonly nextId: IdGenerator;
+  private readonly now: Clock;
 
-  constructor(repo: Repository, ledger: LedgerService) {
+  constructor(repo: Repository, ledger: LedgerService, options: LicenseServiceOptions = {}) {
     this.repo = repo;
     this.ledger = ledger;
+    this.nextId = options.idGenerator ?? defaultIdGenerator;
+    this.now = options.clock ?? defaultClock;
+  }
+
+  /**
+   * Assign a brand-new seat to an existing hire: create the license (active),
+   * write the recurring ledger entry, and bump the budget — the create-and-grant
+   * bridge for people who were already onboarded. Mirrors how a PO creates and
+   * charges an asset in one call.
+   *
+   * Enforces the owned-seat pool: if the app has no available seats, nothing is
+   * created and NoSeatsAvailableError is thrown.
+   */
+  async assign(hireId: string, appId: string): Promise<License> {
+    const hire = await this.repo.hires.get(hireId);
+    if (!hire) throw new Error(`Hire "${hireId}" not found`);
+
+    // Capacity check: assigned (baseline + active/idle/reclaim) must be below owned.
+    const app = await this.ensureSeatAvailable(appId);
+
+    const monthly = monthlyCost(app.costPerSeat, app.billing);
+    const now = this.now().toISOString();
+
+    const license: License = {
+      id: this.nextId(),
+      hireId,
+      appId,
+      status: "active",
+      grantedAt: now,
+      lastUsedAt: now,
+    };
+    await this.repo.licenses.insert(license);
+
+    await this.ledger.writeEntry({
+      hireId,
+      type: "license_grant",
+      label: `Assign: ${app.name}`,
+      amount: monthly,
+      costType: "recurring",
+      refTable: "license",
+      refId: license.id,
+      budgetTeam: "it",
+    });
+
+    return license;
   }
 
   /** Grant a seat: license -> active, write recurring ledger entry, bump budget. */
   async grant(licenseId: string): Promise<License> {
     const license = await this.requireLicense(licenseId);
-    const app = await this.repo.appCatalog.get(license.appId);
-    if (!app) throw new Error(`App "${license.appId}" not found`);
+
+    // Capacity check: a seat requested while the pool had room must still be
+    // refused if the pool filled up before it was granted. The license being
+    // granted is non-consuming (requested), so it isn't double-counted here.
+    const app = await this.ensureSeatAvailable(license.appId);
 
     const monthly = monthlyCost(app.costPerSeat, app.billing);
 
@@ -76,5 +153,23 @@ export class LicenseService {
     const license = await this.repo.licenses.get(licenseId);
     if (!license) throw new Error(`License "${licenseId}" not found`);
     return license;
+  }
+
+  /**
+   * Look up an app and assert it has a free seat. Shared by `assign` (new seat)
+   * and `grant` (waiting seat): both must refuse a full pool. Because a
+   * `requested` license is non-consuming, granting one isn't counted against
+   * the pool here, so the check reflects true remaining capacity.
+   *
+   * @throws NoSeatsAvailableError when the pool is full.
+   */
+  private async ensureSeatAvailable(appId: string): Promise<AppCatalogItem> {
+    const app = await this.repo.appCatalog.get(appId);
+    if (!app) throw new Error(`App "${appId}" not found`);
+    const licenses = await this.repo.licenses.list();
+    if (assignedSeats(app, licenses) >= app.seatsOwned) {
+      throw new NoSeatsAvailableError(app.name);
+    }
+    return app;
   }
 }

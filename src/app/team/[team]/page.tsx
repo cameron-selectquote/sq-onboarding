@@ -3,6 +3,7 @@ import {getServices} from '@/server/store';
 import type {Task, TaskStatus} from '@/lib/types';
 import {Avatar, PageHead, SegLinks, Shell} from '../../_components/Shell';
 import {
+  AssignSeatForm,
   LicenseButton,
   MarkReadButton,
   RaisePoForm,
@@ -155,6 +156,23 @@ export default async function TeamQueue({
               })}
             </div>
           </section>
+
+          {team === "it" && (
+            <section className="panel" style={{ padding: "16px 20px 20px" }}>
+              <span className="panel-title" style={{ fontSize: 18 }}>
+                Assign an extra seat
+              </span>
+              <AssignSeatForm
+                hires={hires.map((h) => ({ id: h.id, name: h.name }))}
+                apps={pools.map((p) => ({
+                  id: p.appId,
+                  name: p.name,
+                  available: p.available,
+                  monthlyCost: p.monthlyCost,
+                }))}
+              />
+            </section>
+          )}
         </div>
 
         <aside className='rail'>

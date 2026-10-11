@@ -14,7 +14,7 @@ const hire: Hire = {
 let n = 0;
 function task(status: TaskStatus, ownerTeam: Team = "it", cost = 0): Task {
   n += 1;
-  return { id: `t${n}`, hireId: "h1", title: `Task ${n}`, ownerTeam, status, cost, costType: cost ? "one_time" : "none" };
+  return { id: `t${n}`, hireId: "h1", title: `Task ${n}`, ownerTeam, status, cost, costType: cost ? "one_time" : "none", appId: null };
 }
 
 describe("hireProgress", () => {
