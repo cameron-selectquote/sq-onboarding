@@ -129,7 +129,6 @@ const NAV: { title: string | null; view: View; items: NavLink[] }[] = [
       { href: "/specialist/hires", label: "Hires" },
       { href: "/specialist/templates", label: "Templates" },
       { href: "/specialist/genie", label: "Genie" },
-      { href: "/specialist/brief", label: "Access brief" },
     ],
   },
   {
