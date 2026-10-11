@@ -515,6 +515,20 @@ export class SqliteRepository implements Repository {
     wipe();
   }
 
+  /** True for a `:memory:` store (nothing on disk to back up). */
+  get inMemory(): boolean {
+    return this.db.memory;
+  }
+
+  /**
+   * Write a consistent snapshot of the live DB to `destination` using SQLite's
+   * online backup API. Unlike a raw file copy, this includes pages still in
+   * the WAL, so the snapshot is complete.
+   */
+  async backup(destination: string): Promise<void> {
+    await this.db.backup(destination);
+  }
+
   close(): void {
     this.db.close();
   }

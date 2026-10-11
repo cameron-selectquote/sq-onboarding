@@ -92,6 +92,7 @@ interface Services {
 // (or multiple handles to the same SQLite file).
 const globalForStore = globalThis as unknown as {
   __provisionServices?: Services;
+  __provisionSqlite?: SqliteRepository;
   __provisionSeeded?: Promise<void>;
 };
 
@@ -149,6 +150,7 @@ function services(): Services {
   if (!globalForStore.__provisionServices) {
     const {services: svc, repo} = build();
     globalForStore.__provisionServices = svc;
+    globalForStore.__provisionSqlite = repo;
     // Seed only on a fresh store; a populated file is left as-is so data
     // survives restarts and re-seeding never collides on duplicate ids.
     globalForStore.__provisionSeeded =
@@ -216,20 +218,38 @@ export async function getServices(): Promise<Services> {
 export interface ResetSummary {
   ok: true;
   reseeded: true;
+  /** Where the pre-reset snapshot was written; null for a `:memory:` store. */
+  backup: string | null;
   counts: Record<string, number>;
 }
 
 /**
- * Dev-only: wipe the store and reload the committed seed (plus optional
- * backdated history), returning it to its first-boot baseline. Operates on the
- * live shared repo in place, so every route sees the reseeded data. The
+ * Snapshot the live DB next to it as `<db>-backup-<timestamp>` (matches the
+ * `/data/*.sqlite-*` gitignore rule). Returns the path, or null for an
+ * in-memory store. Throws on failure so the caller never wipes un-backed-up data.
+ */
+async function backupStore(repo: SqliteRepository): Promise<string | null> {
+  if (repo.inMemory) return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const destination = `${resolveDbPath()}-backup-${stamp}`;
+  await repo.backup(destination);
+  return destination;
+}
+
+/**
+ * Wipe the store and reload the committed seed (plus optional backdated
+ * history), returning it to its first-boot baseline. A snapshot of the current
+ * DB is written first; if that fails, nothing is wiped. Operates on the live
+ * shared repo in place, so every route sees the reseeded data. The
  * `__provisionSeeded` promise is reset to the reseed so a concurrent
  * `getServices()` awaits the fresh load, not a stale resolved one.
  *
- * Not for production — the API route guards on NODE_ENV.
+ * Who may call it is decided by the API route (`canResetStore`).
  */
 export async function resetStore(): Promise<ResetSummary> {
   const svc = await getServices();
+  const sqlite = globalForStore.__provisionSqlite;
+  const backup = sqlite ? await backupStore(sqlite) : null;
   const reseed = (async () => {
     await svc.repo.reset();
     await loadSeed(svc.repo);
@@ -237,7 +257,12 @@ export async function resetStore(): Promise<ResetSummary> {
   })();
   globalForStore.__provisionSeeded = reseed;
   await reseed;
-  return {ok: true, reseeded: true, counts: await collectionCounts(svc.repo)};
+  return {
+    ok: true,
+    reseeded: true,
+    backup,
+    counts: await collectionCounts(svc.repo),
+  };
 }
 
 /** Row count per collection, keyed by collection name, for the reset summary. */

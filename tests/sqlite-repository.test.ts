@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createSqliteRepository, SqliteRepository } from "@/lib/sqlite-repository";
 import { loadSeed, seedData } from "@/data/seed";
 import type { Company, Notification, ReclaimTask } from "@/lib/types";
@@ -137,5 +140,39 @@ describe("SqliteRepository collection", () => {
     expect((await repo.hires.list()).length).toBe(seedData.hires.length);
     expect((await repo.licenses.list()).length).toBe(seedData.licenses.length);
     expect((await repo.appCatalog.list()).length).toBe(seedData.appCatalog.length);
+  });
+});
+
+describe("SqliteRepository.backup", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "provision-backup-"));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reports :memory: stores as in-memory", () => {
+    const repo = createSqliteRepository(":memory:");
+    expect(repo.inMemory).toBe(true);
+    repo.close();
+  });
+
+  it("snapshots current data, unaffected by a later reset", async () => {
+    const live = createSqliteRepository(path.join(dir, "live.sqlite"));
+    expect(live.inMemory).toBe(false);
+    await loadSeed(live);
+    const hires = (await live.hires.list()).length;
+    expect(hires).toBeGreaterThan(0);
+
+    const dest = path.join(dir, "live.sqlite-backup-test");
+    await live.backup(dest);
+    await live.reset();
+    expect(await live.hires.list()).toHaveLength(0);
+    live.close();
+
+    const restored = createSqliteRepository(dest);
+    expect(await restored.hires.list()).toHaveLength(hires);
+    restored.close();
   });
 });
