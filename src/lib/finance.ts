@@ -25,6 +25,25 @@ import type {
   License,
 } from "./types";
 
+/** Preset finance date-range window. "all" means no lower bound (full history). */
+export type FinanceRange = "3m" | "6m" | "12m" | "all";
+
+/**
+ * Start-of-window boundary for a preset finance range, at month granularity and
+ * inclusive of the current month. For `Nm`, the window spans the last N calendar
+ * months ending at `now`'s month, so the lower bound is the first day (local
+ * midnight) of the month `N-1` months before `now`'s month (e.g. "3m" from a
+ * June `now` starts Apr 1). `"all"` returns `null` (no lower bound). All finance
+ * data is bucketed by "YYYY-MM", so a monthly boundary is the right grain; the
+ * caller filters entries with `new Date(e.createdAt) >= rangeStart(...)`.
+ */
+export function rangeStart(now: Date, range: FinanceRange): Date | null {
+  if (range === "all") return null;
+  const n = range === "3m" ? 3 : range === "6m" ? 6 : 12;
+  // JS Date normalizes a negative month into the prior year.
+  return new Date(now.getFullYear(), now.getMonth() - (n - 1), 1);
+}
+
 /** Normalize any billing cadence to a monthly figure. */
 export function monthlyCost(costPerSeat: number, billing: "monthly" | "annual"): number {
   return billing === "annual" ? costPerSeat / 12 : costPerSeat;

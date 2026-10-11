@@ -11,6 +11,7 @@ import {
   isOverspent,
   quarterLabel,
   quarterMonths,
+  rangeStart,
   reclaimImpact,
   monthlyCost,
   monthlySpend,
@@ -21,6 +22,7 @@ import {
   recurringMonthlyBurn,
   residualValue,
 } from "@/lib/finance";
+import { sum } from "@/lib/ledger";
 import type { BvAReport } from "@/lib/finance";
 import type {
   AppCatalogItem,
@@ -449,6 +451,94 @@ describe("assetsOnHand", () => {
       { id: "a2", catalogId: "mbp", serialTag: "y", status: "assigned", assignedToHireId: "h1", acquiredAt: null, returnedAt: null },
     ];
     expect(assetsOnHand(assets)).toBe(1);
+  });
+});
+
+describe("rangeStart", () => {
+  // Fixed, mid-month `now` so results are timezone-robust and deterministic.
+  const now = new Date(2026, 5, 15); // June 15, 2026 (local)
+
+  it("returns the first of the start month, inclusive of the current month", () => {
+    // 3m window = current month + 2 prior = Apr, May, Jun -> starts Apr 1
+    expect(rangeStart(now, "3m")).toEqual(new Date(2026, 3, 1));
+    // 6m window -> starts Jan 1 2026
+    expect(rangeStart(now, "6m")).toEqual(new Date(2026, 0, 1));
+    // 12m window -> starts Jul 1 2025
+    expect(rangeStart(now, "12m")).toEqual(new Date(2025, 6, 1));
+  });
+
+  it("returns null for 'all' (no lower bound)", () => {
+    expect(rangeStart(now, "all")).toBeNull();
+  });
+
+  it("rolls the start month across a year boundary", () => {
+    const feb = new Date(2026, 1, 10); // Feb 10, 2026
+    // 3m window = Feb + Jan + Dec -> starts Dec 1, 2025
+    expect(rangeStart(feb, "3m")).toEqual(new Date(2025, 11, 1));
+  });
+
+  it("always lands on the first day of a month", () => {
+    for (const r of ["3m", "6m", "12m"] as const) {
+      const d = rangeStart(now, r)!;
+      expect(d.getDate()).toBe(1);
+    }
+  });
+});
+
+describe("range filter → finance derivations", () => {
+  const mk = (id: string, amount: number, costType: "recurring" | "one_time", createdAt: string): LedgerEntry =>
+    ({ id, hireId: "h1", type: "fee", label: id, amount, costType, refTable: null, refId: null, createdAt });
+
+  // Entries spanning Mar–Jun 2026, recurring + one-time.
+  const entries: LedgerEntry[] = [
+    mk("a", 21, "recurring", "2026-03-10T00:00:00.000Z"),
+    mk("b", 2400, "one_time", "2026-03-20T00:00:00.000Z"),
+    mk("c", 8, "recurring", "2026-04-05T00:00:00.000Z"),
+    mk("d", 15, "recurring", "2026-05-05T00:00:00.000Z"),
+    mk("e", 100, "one_time", "2026-06-01T00:00:00.000Z"),
+    mk("f", 5, "recurring", "2026-06-10T00:00:00.000Z"),
+  ];
+  const now = new Date(2026, 5, 15); // June 15, 2026 (local)
+
+  const applyRange = (range: Parameters<typeof rangeStart>[1]) => {
+    const start = rangeStart(now, range);
+    return start === null
+      ? entries
+      : entries.filter((e) => new Date(e.createdAt).getTime() >= start.getTime());
+  };
+
+  it("scopes cumulativeRecurringBurn and the total to the 3m window", () => {
+    // 3m from June -> start Apr 1: keeps c (Apr), d (May), e+f (Jun). Drops Mar.
+    const filtered = applyRange("3m");
+    expect(filtered.map((e) => e.id)).toEqual(["c", "d", "e", "f"]);
+    // recurring burn runs Apr 8 -> May 23 -> Jun 28
+    expect(cumulativeRecurringBurn(filtered).map((p) => [p.month, p.burn])).toEqual([
+      ["2026-04", 8],
+      ["2026-05", 23],
+      ["2026-06", 28],
+    ]);
+    // scoped total = 8 + 15 + 100 + 5 = 128
+    expect(sum(filtered.map((e) => e.amount))).toBe(128);
+  });
+
+  it("range=all uses the full ledger (identical to today's full-history numbers)", () => {
+    expect(rangeStart(now, "all")).toBeNull();
+    const filtered = applyRange("all");
+    expect(filtered).toEqual(entries);
+    // Full-history total matches summing every entry (what summary.totalSpend holds).
+    expect(sum(filtered.map((e) => e.amount))).toBe(2549);
+    expect(cumulativeRecurringBurn(filtered)).toEqual(cumulativeRecurringBurn(entries));
+  });
+
+  it("an empty window yields no burn points and a safe (non-zero) max divisor", () => {
+    // No entries after this far-future boundary.
+    const empty = entries.filter((e) => new Date(e.createdAt).getTime() >= new Date(2030, 0, 1).getTime());
+    expect(empty).toHaveLength(0);
+    const series = cumulativeRecurringBurn(empty);
+    expect(series).toEqual([]);
+    // The page normalizes with Math.max(1, ...burns) so an empty series can't
+    // divide by zero and the empty-state copy renders instead of a broken chart.
+    expect(Math.max(1, ...series.map((p) => p.burn))).toBe(1);
   });
 });
 

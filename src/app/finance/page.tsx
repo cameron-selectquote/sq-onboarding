@@ -1,7 +1,8 @@
 import { getServices } from "@/server/store";
 import { getBudgetVsActual, getFinanceSummary, getReclaimQueue } from "@/server/queries";
-import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, recurringAddedSince } from "@/lib/finance";
-import { Kpi, Meter, PageHead, Shell } from "../_components/Shell";
+import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, rangeStart, recurringAddedSince, type FinanceRange } from "@/lib/finance";
+import { sum } from "@/lib/ledger";
+import { Kpi, Meter, PageHead, SegLinks, Shell } from "../_components/Shell";
 import { money, teamLabel, timeAgo } from "../_components/format";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +10,17 @@ export const dynamic = "force-dynamic";
 const COST_TYPE_LABEL = { none: "—", one_time: "one-time", recurring: "recurring" } as const;
 
 /** Finance overview (design 2c): burn, budgets, live ledger. */
-export default async function FinanceOverview() {
+export default async function FinanceOverview({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string }>;
+}) {
+  const { range: rawRange } = await searchParams;
+  // Default (and any unknown value) is ALL — full history, page looks as today.
+  const range: FinanceRange = ["3m", "6m", "12m"].includes(rawRange ?? "")
+    ? (rawRange as FinanceRange)
+    : "all";
+
   const { repo } = await getServices();
   const [{ summary, budgets }, reclaim, entries, hires, bvaResult] = await Promise.all([
     getFinanceSummary(),
@@ -21,17 +32,29 @@ export default async function FinanceOverview() {
   const { bva, reclaim: bvaReclaim } = bvaResult;
   const hireById = new Map(hires.map((h) => [h.id, h]));
 
+  // Month-granularity window ending at the current month. Filtered entries drive
+  // the historical panels (burn trend + deltas, Total spend, Avg cost per hire,
+  // Live ledger); current-state tiles and BvA stay live below.
+  const start = rangeStart(new Date(), range);
+  const filtered = start === null
+    ? entries
+    : entries.filter((e) => new Date(e.createdAt).getTime() >= start.getTime());
+
   // Start of the local day — so "today" tracks the viewer's timezone, not UTC.
+  // "+$X today" stays full-ledger / today-scoped, independent of the range.
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const burnToday = recurringAddedSince(entries, startOfToday);
 
-  const spendingHires = hires.filter((h) => entries.some((e) => e.hireId === h.id));
-  const avgPerHire = avgCostPerSpendingHire(entries, hires.map((h) => h.id));
+  const spendingHires = hires.filter((h) => filtered.some((e) => e.hireId === h.id));
+  const avgPerHire = avgCostPerSpendingHire(filtered, hires.map((h) => h.id));
+  // Ranged "Total spend": the filtered sum. When range=all, filtered === entries,
+  // so this equals summary.totalSpend (the full-ledger total) exactly.
+  const rangedTotalSpend = range === "all" ? summary.totalSpend : sum(filtered.map((e) => e.amount));
 
-  const recent = [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
+  const recent = [...filtered].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
   // Recurring burn trend ("costs growing over time") + period-over-period deltas.
-  const burnSeries = cumulativeRecurringBurn(entries);
+  const burnSeries = cumulativeRecurringBurn(filtered);
   const mom = burnDelta(burnSeries, 1);
   const yoy = burnDelta(burnSeries, 12);
   const maxBurn = Math.max(1, ...burnSeries.map((p) => p.burn));
@@ -55,22 +78,33 @@ export default async function FinanceOverview() {
   return (
     <Shell active="/finance">
       <PageHead eyebrow={`${periodLabel} · onboarding spend`} title="Where the money's going" />
+      <div>
+        <SegLinks
+          active={range === "all" ? "/finance" : `/finance?range=${range}`}
+          options={[
+            { href: "/finance", label: "All" },
+            { href: "/finance?range=3m", label: "3 months" },
+            { href: "/finance?range=6m", label: "6 months" },
+            { href: "/finance?range=12m", label: "12 months" },
+          ]}
+        />
+      </div>
       <div className="kpis">
         <Kpi
           label="Recurring burn"
           value={money(Math.round(summary.recurringMonthlyBurn))}
           unit="/mo"
-          sub={
+          sub={`${
             mom.comparable
               ? `${fmtDelta(mom)} MoM`
               : burnToday === 0
                 ? "no change today"
                 : `${burnToday > 0 ? "+" : ""}${money(burnToday)} today`
-          }
+          } · current`}
         />
         <Kpi
           label="Total spend"
-          value={money(Math.round(summary.totalSpend))}
+          value={money(Math.round(rangedTotalSpend))}
           sub={`${spendingHires.length} hires with spend`}
         />
         <Kpi label="Avg cost per hire" value={money(Math.round(avgPerHire))} sub="seats + hardware + fees" />
@@ -80,8 +114,8 @@ export default async function FinanceOverview() {
           unit="/mo"
           sub={
             reclaim.oneTimeAsset > 0
-              ? `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · ${money(Math.round(reclaim.oneTimeAsset))} one-time asset residual`
-              : `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats`
+              ? `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · ${money(Math.round(reclaim.oneTimeAsset))} one-time asset residual · current`
+              : `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · current`
           }
           tone="good"
         />
@@ -103,6 +137,7 @@ export default async function FinanceOverview() {
             ? `On the current run-rate, spend is projected to finish ${money(Math.round(bva.projectedVariance))} over the ${money(bva.budget)} budget${bva.crossoverMonth ? `, crossing the line in ${monthLabel(bva.crossoverMonth)}` : ""}.`
             : `On the current run-rate, spend is projected to finish ${money(Math.abs(Math.round(bva.projectedVariance)))} under the ${money(bva.budget)} budget.`}
         </span>
+        <span className="meter-note">Always the current quarter — not scoped to the selected range.</span>
         {bva.projectedVariance > 0 && bvaReclaim.reclaimableMonthly > 0 && (
           <div
             className={bvaReclaim.bringsUnderBudget ? "banner" : undefined}
