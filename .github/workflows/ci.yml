@@ -85,11 +85,14 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
       # Uploads the standalone build, switches the `current` symlink, restarts
-      # node.service, smoke-tests $PROD_URL/api/hires, and rolls back on failure.
+      # node.service, smoke-tests $PROD_URL/api/health (200) and /api/hires
+      # (401 without a session), and rolls back on failure.
       - name: Deploy to Akamai
         timeout-minutes: 5
         # Runtime env written to the box by deploy.sh (Production environment).
         env:
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           GENIE_MODEL_ID: ${{ vars.GENIE_MODEL_ID }}
