@@ -28,12 +28,12 @@ import type {
 } from '@/lib/types';
 
 /**
- * Cohort convention for a hire that's offboarding. The reclaim route treats
- * hires with this cohort as "assets should come back" (see the reclaim-
- * visibility spec). A stand-in for a real offboarding column — swap later
- * without touching the type contract.
+ * Cohort convention for a hire that's offboarding. Canonical definition now
+ * lives in `@/lib/cohorts` so domain services can use it without importing
+ * seed data; re-exported here so existing `@/data/seed` imports keep working.
  */
-export const OFFBOARDING_COHORT = 'offboarding';
+import {OFFBOARDING_COHORT} from '@/lib/cohorts';
+export {OFFBOARDING_COHORT};
 
 export interface SeedData {
   companies: Company[];

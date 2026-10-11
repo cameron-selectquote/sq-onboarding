@@ -12,10 +12,12 @@
  * finance/reclaim views reflect the recovery automatically.
  */
 
-import { monthlyCost, residualValue } from "./finance";
-import type { AssetService } from "./assets";
-import type { LicenseService } from "./licenses";
-import type { Repository } from "./repository";
+import {monthlyCost, residualValue} from './finance';
+import {OFFBOARDING_COHORT} from './cohorts';
+import type {AssetService} from './assets';
+import type {LicenseService} from './licenses';
+import type {NotificationService} from './notifications';
+import type {Repository} from './repository';
 
 export interface OffboardSeat {
   licenseId: string;
@@ -56,11 +58,18 @@ export class OffboardingService {
   private readonly repo: Repository;
   private readonly licenses: LicenseService;
   private readonly assets: AssetService;
+  private readonly notifications?: NotificationService;
 
-  constructor(repo: Repository, licenses: LicenseService, assets: AssetService) {
+  constructor(
+    repo: Repository,
+    licenses: LicenseService,
+    assets: AssetService,
+    options: {notifications?: NotificationService} = {},
+  ) {
     this.repo = repo;
     this.licenses = licenses;
     this.assets = assets;
+    this.notifications = options.notifications;
   }
 
   /**
@@ -83,7 +92,7 @@ export class OffboardingService {
 
     // Only seats that currently cost money (active or idle) are worth revoking.
     const seats: OffboardSeat[] = licenses
-      .filter((l) => l.status === "active" || l.status === "idle")
+      .filter((l) => l.status === 'active' || l.status === 'idle')
       .map((l) => {
         const app = appById.get(l.appId);
         return {
@@ -96,7 +105,7 @@ export class OffboardingService {
 
     // Hardware still assigned to the hire can be returned for residual value.
     const assetRows: OffboardAsset[] = assets
-      .filter((a) => a.status === "assigned")
+      .filter((a) => a.status === 'assigned')
       .map((a) => {
         const cat = catById.get(a.catalogId);
         return {
@@ -142,6 +151,36 @@ export class OffboardingService {
       returnedAssetIds.push(asset.assetId);
     }
 
-    return { ...preview, revokedSeatIds, returnedAssetIds };
+    // Flip the hire into the offboarding cohort so the active-hire views
+    // (home, specialist board, manager) stop listing them as onboarding, and
+    // the reclaim engine's "assets pending return" rule recognizes them.
+    await this.repo.hires.update(hireId, {cohort: OFFBOARDING_COHORT});
+
+    // Let the owning teams know what to action (reclaim seat / collect
+    // hardware), batched so one offboard reads as one event in each inbox.
+    if (this.notifications) {
+      const batchId = `offboard_${hireId}`;
+      if (revokedSeatIds.length) {
+        await this.notifications.notify({
+          targetTeam: 'it',
+          message: `${preview.hireName} offboarded — ${revokedSeatIds.length} software seat(s) revoked, ${money0(preview.monthlyRecovered)}/mo recovered.`,
+          batchId,
+        });
+      }
+      if (returnedAssetIds.length) {
+        await this.notifications.notify({
+          targetTeam: 'vendor',
+          message: `${preview.hireName} offboarded — ${returnedAssetIds.length} asset(s) to collect, ${money0(preview.oneTimeRecovered)} residual credited.`,
+          batchId,
+        });
+      }
+    }
+
+    return {...preview, revokedSeatIds, returnedAssetIds};
   }
+}
+
+/** Whole-dollar money format for notification copy. */
+function money0(n: number): string {
+  return `$${Math.round(n).toLocaleString('en-US')}`;
 }

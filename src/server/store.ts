@@ -26,9 +26,12 @@ import {TemplateService} from '@/lib/templates';
 import {CandidateService} from '@/lib/candidates';
 import {OnboardingExecutor} from '@/lib/onboarding';
 import {OffboardingService} from '@/lib/offboarding';
+import {NotificationService} from '@/lib/notifications';
 import {MockAiClient} from '@/lib/ai';
+import {StrandsAiClient} from '@/lib/strands-ai';
 import type {Repository} from '@/lib/repository';
 import type {AiClient} from '@/lib/ai';
+import {hasBedrockCreds} from '@/lib/bedrock';
 import {loadSeed, seedData} from '@/data/seed';
 
 interface Services {
@@ -40,6 +43,7 @@ interface Services {
   candidates: CandidateService;
   onboarding: OnboardingExecutor;
   offboarding: OffboardingService;
+  notifications: NotificationService;
   ai: AiClient;
 }
 
@@ -70,6 +74,7 @@ function build(): {services: Services; repo: SqliteRepository} {
   const templates = new TemplateService(repo);
   const licenses = new LicenseService(repo, ledger);
   const assets = new AssetService(repo, ledger);
+  const notifications = new NotificationService(repo);
   return {
     repo,
     services: {
@@ -79,9 +84,17 @@ function build(): {services: Services; repo: SqliteRepository} {
       assets,
       templates,
       candidates: new CandidateService(repo, templates),
-      onboarding: new OnboardingExecutor(repo, licenses, assets),
-      offboarding: new OffboardingService(repo, licenses, assets),
-      ai: new MockAiClient(),
+      onboarding: new OnboardingExecutor(repo, licenses, assets, {
+        notifications,
+      }),
+      offboarding: new OffboardingService(repo, licenses, assets, {
+        notifications,
+      }),
+      notifications,
+      // Strands-backed AI (Bedrock) when creds exist; deterministic mock
+      // otherwise, so the demo and tests run offline. Same graceful-degradation
+      // policy as the Genie — the one `hasBedrockCreds()` check decides both.
+      ai: hasBedrockCreds() ? new StrandsAiClient(repo) : new MockAiClient(),
     },
   };
 }

@@ -10,10 +10,22 @@
 import {useEffect, useRef, useState} from 'react';
 import {MiniMarkdown} from './MiniMarkdown';
 
+/** A structured recovered-spend card the chat renders as a visual panel. */
+interface ReclaimCard {
+  type: 'reclaim';
+  kind: 'pending' | 'done';
+  hireName: string;
+  seats: {label: string; monthly: number}[];
+  assets: {label: string; residual: number}[];
+  monthlyRecovered: number;
+  oneTimeRecovered: number;
+}
+
 interface ChatTurn {
   role: 'genie' | 'user';
   text: string;
   engine?: 'strands-bedrock' | 'scripted';
+  card?: ReclaimCard | null;
 }
 
 interface GenieReply {
@@ -23,6 +35,73 @@ interface GenieReply {
   plan?: unknown;
   /** Opaque pending offboard — round-tripped so the yes/no gate persists. */
   offboard?: unknown;
+  /** Optional structured card to render alongside the message (render-only). */
+  card?: ReclaimCard | null;
+}
+
+const money0 = (n: number): string =>
+  `$${Math.round(n).toLocaleString('en-US')}`;
+
+/** Visual recovered-spend panel for the offboard preview/result. */
+function ReclaimCardView({card}: {card: ReclaimCard}) {
+  const done = card.kind === 'done';
+  return (
+    <div className={`reclaim-card${done ? ' is-done' : ''}`} role='group'>
+      <div className='reclaim-card-head'>
+        <span className='reclaim-card-title'>
+          {done ?
+            `${card.hireName} offboarded`
+          : `Reclaim preview · ${card.hireName}`}
+        </span>
+        <span className={`tag ${done ? 'tag-accent-2' : 'tag-neutral'}`}>
+          {done ? 'Recovered' : 'Recoverable'}
+        </span>
+      </div>
+
+      {card.seats.length > 0 && (
+        <div className='reclaim-card-section'>
+          <span className='reclaim-card-label'>
+            Seats {done ? 'revoked' : 'to revoke'}
+          </span>
+          {card.seats.map((s, i) => (
+            <div key={i} className='reclaim-card-row'>
+              <span>{s.label}</span>
+              <span className='reclaim-card-amt'>{money0(s.monthly)}/mo</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {card.assets.length > 0 && (
+        <div className='reclaim-card-section'>
+          <span className='reclaim-card-label'>
+            Hardware {done ? 'returned' : 'to return'}
+          </span>
+          {card.assets.map((a, i) => (
+            <div key={i} className='reclaim-card-row'>
+              <span>{a.label}</span>
+              <span className='reclaim-card-amt'>{money0(a.residual)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className='reclaim-card-totals'>
+        <div className='reclaim-card-total'>
+          <span className='reclaim-card-total-value'>
+            {money0(card.monthlyRecovered)}/mo
+          </span>
+          <span className='reclaim-card-total-label'>recurring</span>
+        </div>
+        <div className='reclaim-card-total'>
+          <span className='reclaim-card-total-value'>
+            {money0(card.oneTimeRecovered)}
+          </span>
+          <span className='reclaim-card-total-label'>one-time</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** Pull a candidate id out of the Genie's reply so "publish" can target it. */
@@ -112,7 +191,12 @@ export function GenieChat({initialName}: {initialName?: string}) {
       setEngine(data.engine);
       setTurns((t) => [
         ...t,
-        {role: 'genie', text: data.message, engine: data.engine},
+        {
+          role: 'genie',
+          text: data.message,
+          engine: data.engine,
+          card: data.card ?? null,
+        },
       ]);
       // Carry the pending plan + offboard confirmation forward.
       setPlan(data.plan ?? null);
@@ -253,6 +337,9 @@ export function GenieChat({initialName}: {initialName?: string}) {
             {t.role === 'genie' ?
               <div className='genie-text'>
                 <MiniMarkdown text={t.text} />
+                {t.card?.type === 'reclaim' && (
+                  <ReclaimCardView card={t.card} />
+                )}
               </div>
             : <p className='genie-text'>{t.text}</p>}
           </div>
