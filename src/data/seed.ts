@@ -633,6 +633,25 @@ export const seedData: SeedData = {
       grantedAt: daysAgo(85),
       lastUsedAt: daysAgo(55),
     },
+    // Two more idle seats so the reclaimable recurring total clears the
+    // projected quarter-end overage — reclaiming now brings the quarter back
+    // UNDER budget (fires the "with $X to spare" BvA beat), not just trims it.
+    {
+      id: 'lic_16',
+      hireId: 'hire_1',
+      appId: 'github',
+      status: 'idle',
+      grantedAt: daysAgo(72),
+      lastUsedAt: daysAgo(44),
+    },
+    {
+      id: 'lic_17',
+      hireId: 'hire_2',
+      appId: 'jira',
+      status: 'idle',
+      grantedAt: daysAgo(68),
+      lastUsedAt: daysAgo(46),
+    },
   ],
 
   // Per-quarter team budgets, sized so the seeded/backdated spend meaningfully
