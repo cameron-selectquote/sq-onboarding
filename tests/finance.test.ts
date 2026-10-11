@@ -14,6 +14,7 @@ import {
   quarterMonths,
   rangeStart,
   reclaimImpact,
+  recoveredThisQuarter,
   monthlyCost,
   monthlySpend,
   monthOverMonth,
@@ -507,6 +508,89 @@ describe("financeHeroState", () => {
     const bva = bvaWith(0, 2);
     const state = financeHeroState(bva, reclaimImpact(bva, 100));
     expect(state.kind).toBe("onplan");
+  });
+
+  it("is 'inflight' when projected over, reclaimable, and every seat is already flagged", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100), {
+      actionableMonthly: 0,
+      inFlightMonthly: 100,
+    });
+    expect(state.kind).toBe("inflight");
+    if (state.kind !== "inflight") throw new Error("expected inflight");
+    expect(state.inFlightMonthly).toBe(100);
+    expect(state.projectedVariance).toBe(150);
+    expect(state.budget).toBe(3000);
+  });
+
+  it("stays 'overage' when some seats are still actionable (partial in-flight)", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100), {
+      actionableMonthly: 40,
+      inFlightMonthly: 60,
+    });
+    expect(state.kind).toBe("overage");
+  });
+
+  it("stays 'overage' when the in-flight split is omitted (back-compat)", () => {
+    const bva = bvaWith(150, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100));
+    expect(state.kind).toBe("overage");
+  });
+
+  it("is not 'inflight' when there's no projected overage, regardless of in-flight info", () => {
+    const bva = bvaWith(-200, 2);
+    const state = financeHeroState(bva, reclaimImpact(bva, 100), {
+      actionableMonthly: 0,
+      inFlightMonthly: 100,
+    });
+    expect(state.kind).toBe("healthy");
+  });
+});
+
+describe("recoveredThisQuarter", () => {
+  const asOf = new Date("2026-02-15T00:00:00Z"); // Q1 2026 -> months 01,02,03
+  const mk = (
+    id: string,
+    amount: number,
+    type: LedgerEntry["type"],
+    costType: "recurring" | "one_time",
+    createdAt: string,
+  ): LedgerEntry =>
+    ({ id, hireId: "h1", type, label: id, amount, costType, refTable: null, refId: null, createdAt });
+
+  it("sums recurring license_revoke credits dated in the quarter as a positive number", () => {
+    const entries: LedgerEntry[] = [
+      mk("a", -30, "license_revoke", "recurring", "2026-01-10T00:00:00.000Z"),
+      mk("b", -20, "license_revoke", "recurring", "2026-03-05T00:00:00.000Z"),
+    ];
+    expect(recoveredThisQuarter(entries, asOf)).toBe(50);
+  });
+
+  it("excludes one-time credits (e.g. asset returns)", () => {
+    const entries: LedgerEntry[] = [
+      mk("a", -400, "asset_return", "one_time", "2026-02-01T00:00:00.000Z"),
+    ];
+    expect(recoveredThisQuarter(entries, asOf)).toBe(0);
+  });
+
+  it("excludes positive recurring entries (grants)", () => {
+    const entries: LedgerEntry[] = [
+      mk("a", 30, "license_grant", "recurring", "2026-02-01T00:00:00.000Z"),
+    ];
+    expect(recoveredThisQuarter(entries, asOf)).toBe(0);
+  });
+
+  it("excludes recurring reclaim credits dated outside the current quarter", () => {
+    const entries: LedgerEntry[] = [
+      mk("a", -30, "license_revoke", "recurring", "2025-12-20T00:00:00.000Z"),
+      mk("b", -20, "license_revoke", "recurring", "2026-04-05T00:00:00.000Z"),
+    ];
+    expect(recoveredThisQuarter(entries, asOf)).toBe(0);
+  });
+
+  it("returns 0 for empty input", () => {
+    expect(recoveredThisQuarter([], asOf)).toBe(0);
   });
 });
 

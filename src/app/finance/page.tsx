@@ -1,6 +1,6 @@
 import { getServices } from "@/server/store";
-import { getBudgetVsActual, getFinanceSummary, getReclaimQueue } from "@/server/queries";
-import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, financeHeroState, rangeStart, recurringAddedSince, type FinanceRange } from "@/lib/finance";
+import { filterQueueForInFlight, getBudgetVsActual, getFinanceSummary, getReclaimJobs, getReclaimQueue } from "@/server/queries";
+import { avgCostPerSpendingHire, budgetBurnDown, burnDelta, cumulativeRecurringBurn, financeHeroState, rangeStart, recoveredThisQuarter, recurringAddedSince, type FinanceRange } from "@/lib/finance";
 import { sum } from "@/lib/ledger";
 import { Kpi, Meter, PageHead, SegLinks, Shell } from "../_components/Shell";
 import { ReclaimButton } from "../_components/actions";
@@ -23,22 +23,37 @@ export default async function FinanceOverview({
     : "all";
 
   const { repo } = await getServices();
-  const [{ summary, budgets }, reclaim, entries, hires, bvaResult] = await Promise.all([
+  const [{ summary, budgets }, reclaim, entries, hires, bvaResult, { jobs }] = await Promise.all([
     getFinanceSummary(),
     getReclaimQueue(),
     repo.ledgerEntries.list(),
     repo.hires.list(),
     getBudgetVsActual(),
+    getReclaimJobs(),
   ]);
   const { bva, reclaim: bvaReclaim } = bvaResult;
   const hireById = new Map(hires.map((h) => [h.id, h]));
 
   // Hero banner: current-quarter forecast → reclaim loop. Driven by `bva` +
-  // `bvaReclaim` (not the ?range= picker). The CTA flags the FULL reclaimable
-  // set — identical to the finance reclaim page's "Reclaim all" — so the
-  // headline $/mo figure and the action can't disagree.
-  const hero = financeHeroState(bva, bvaReclaim);
-  const reclaimableLicenseIds = reclaim.rows.flatMap((r) => r.licenseIds);
+  // `bvaReclaim` (not the ?range= picker).
+  //
+  // A seat with an open job (pending/reclaiming) is in flight with IT — identical
+  // to the finance reclaim page. The CTA must flag only the seats NOT already in
+  // flight, so repeated "Fix the overage" clicks can't re-offer already-flagged
+  // seats. Both this CTA and the reclaim page's actionable queue filter by the
+  // same in-flight id set, so they can't disagree. Everything derives from the
+  // same reclaim-queue rows (recurring $/mo only — never the one-time residual).
+  const inFlightLicenseIds = new Set(jobs.map((j) => j.licenseId));
+  const actionableRows = filterQueueForInFlight(reclaim.rows, inFlightLicenseIds);
+  const actionableLicenseIds = actionableRows.flatMap((r) => r.licenseIds);
+  const actionableMonthly = actionableRows.reduce((a, r) => a + r.monthly, 0);
+  const inFlightMonthly = reclaim.monthly - actionableMonthly;
+  const hero = financeHeroState(bva, bvaReclaim, { actionableMonthly, inFlightMonthly });
+
+  // Realized recurring savings this quarter — traced to the ledger, NOT the
+  // reclaimable estimate, and NOT scoped by the ?range= picker (current-quarter,
+  // like the hero and BvA).
+  const recovered = recoveredThisQuarter(entries, new Date());
 
   // Month-granularity window ending at the current month. Filtered entries drive
   // the historical panels (burn trend + deltas, Total spend, Avg cost per hire,
@@ -106,9 +121,19 @@ export default async function FinanceOverview({
               className="btn btn-on-color"
               createdByTeam="finance"
               label="Fix the overage"
-              licenseIds={reclaimableLicenseIds}
+              licenseIds={actionableLicenseIds}
             />
           </>
+        ) : hero.kind === "inflight" ? (
+          <div className="banner-text">
+            <span style={{ fontSize: 13 }}>Forecast → reclaim · {bva.quarter}</span>
+            <span className="banner-value">
+              {money(Math.round(hero.projectedVariance))} over
+            </span>
+            <span style={{ fontSize: 14 }}>
+              {`Reclaim in progress — ${money(Math.round(hero.inFlightMonthly))}/mo flagged, awaiting IT. Projected back under budget once completed.`}
+            </span>
+          </div>
         ) : (
           <div className="banner-text">
             <span style={{ fontSize: 13 }}>Forecast · {bva.quarter}</span>
@@ -167,6 +192,13 @@ export default async function FinanceOverview({
               ? `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · ${money(Math.round(reclaim.oneTimeAsset))} one-time asset residual · current`
               : `${reclaim.rows.reduce((a, r) => a + r.licenseIds.length, 0)} seats · current`
           }
+          tone="good"
+        />
+        <Kpi
+          label="Recovered this quarter"
+          value={money(Math.round(recovered))}
+          unit="/mo"
+          sub="realized · recurring"
           tone="good"
         />
       </div>
@@ -231,22 +263,28 @@ export default async function FinanceOverview({
             <span className="empty">No ledger activity yet. Grant a seat or raise a PO from a team queue.</span>
           )}
           <div className="rows">
-            {recent.map((e) => (
-              <div key={e.id} className="row row-ledger">
-                <div className="who-text">
-                  <span className="who-name">{e.label}</span>
-                  <span className="who-sub">
-                    {(e.hireId && hireById.get(e.hireId)?.name) || "—"} · {timeAgo(e.createdAt)}
+            {recent.map((e) => {
+              // Recurring license-revoke credits are realized reclaims — label
+              // them "reclaimed" so the recovery reads as such, distinct from an
+              // ordinary revoke. Presentation only: amount/type are unchanged.
+              const isReclaim = e.type === "license_revoke" && e.amount < 0 && e.costType === "recurring";
+              return (
+                <div key={e.id} className="row row-ledger">
+                  <div className="who-text">
+                    <span className="who-name">{e.label}</span>
+                    <span className="who-sub">
+                      {(e.hireId && hireById.get(e.hireId)?.name) || "—"} · {timeAgo(e.createdAt)}
+                    </span>
+                  </div>
+                  <span className={e.amount < 0 ? "amt amt-credit" : "amt"}>
+                    {e.amount > 0 ? "+" : ""}
+                    {money(e.amount)}
+                    {e.costType === "recurring" ? "/mo" : ""}
+                    <span className="amt-type">{isReclaim ? "reclaimed" : e.amount < 0 ? "credit" : COST_TYPE_LABEL[e.costType]}</span>
                   </span>
                 </div>
-                <span className={e.amount < 0 ? "amt amt-credit" : "amt"}>
-                  {e.amount > 0 ? "+" : ""}
-                  {money(e.amount)}
-                  {e.costType === "recurring" ? "/mo" : ""}
-                  <span className="amt-type">{e.amount < 0 ? "credit" : COST_TYPE_LABEL[e.costType]}</span>
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </div>

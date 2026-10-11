@@ -463,6 +463,12 @@ export function reclaimImpact(bva: BvAReport, reclaimableMonthly: number): Recla
  *               from $0 — a calm one-liner. `overBudget` tells the view whether
  *               to word it as "$N under" (headroom) or "$N over, no idle seats
  *               to reclaim" so the copy never contradicts the sign.
+ * - `inflight`: projected over budget AND seats are reclaimable, but every
+ *               reclaimable seat is already flagged (a pending/reclaiming job),
+ *               so there's nothing left to action — show a "reclaim in progress,
+ *               awaiting IT" status line instead of a CTA. `inFlightMonthly` is
+ *               the recurring $/mo already flagged. This is what stops the
+ *               "Fix the overage" button re-flagging seats it already flagged.
  * - `onplan`:   projected variance rounds to $0 — neutral "on plan" one-liner.
  */
 export type FinanceHeroState =
@@ -476,11 +482,39 @@ export type FinanceHeroState =
       projectedVarianceAfter: number;
       bringsUnderBudget: boolean;
     }
+  | {
+      kind: "inflight";
+      projectedVariance: number;
+      budget: number;
+      crossoverMonth: string | null;
+      inFlightMonthly: number;
+    }
   | { kind: "healthy"; amount: number; overBudget: boolean }
   | { kind: "onplan" };
 
-export function financeHeroState(bva: BvAReport, reclaim: ReclaimImpact): FinanceHeroState {
+/**
+ * @param inFlight Optional split of the reclaimable seats into what's still
+ *   actionable vs already flagged (in flight with IT), as recurring $/mo. Both
+ *   figures derive from the same reclaim-queue rows, so they're recurring-only
+ *   and never mix the one-time asset residual. When omitted, behavior is
+ *   identical to before (no `inflight` state can be chosen), so existing callers
+ *   keep their outcomes.
+ */
+export function financeHeroState(
+  bva: BvAReport,
+  reclaim: ReclaimImpact,
+  inFlight?: { actionableMonthly: number; inFlightMonthly: number },
+): FinanceHeroState {
   if (bva.projectedVariance > 0 && reclaim.reclaimableMonthly > 0) {
+    if (inFlight && inFlight.actionableMonthly <= 0 && inFlight.inFlightMonthly > 0) {
+      return {
+        kind: "inflight",
+        projectedVariance: bva.projectedVariance,
+        budget: bva.budget,
+        crossoverMonth: bva.crossoverMonth,
+        inFlightMonthly: inFlight.inFlightMonthly,
+      };
+    }
     return {
       kind: "overage",
       projectedVariance: bva.projectedVariance,
@@ -500,6 +534,32 @@ export function financeHeroState(bva: BvAReport, reclaim: ReclaimImpact): Financ
     amount: Math.abs(bva.projectedVariance),
     overBudget: bva.projectedVariance > 0,
   };
+}
+
+/**
+ * Recurring $/mo actually recovered this quarter — realized savings, traced to
+ * the ledger (the single source of truth), not the reclaimable estimate.
+ *
+ * Sums the absolute value of recurring crediting `license_revoke` entries whose
+ * `createdAt` month falls in the quarter containing `asOf` (bounded by the same
+ * `quarterMonths` the BvA uses, so this can't disagree with the quarter in
+ * view). Recurring-only: one-time asset returns, grants (positive amounts), and
+ * out-of-quarter entries are excluded. Returned as a positive figure; `0` for
+ * no qualifying entries.
+ */
+export function recoveredThisQuarter(entries: LedgerEntry[], asOf: Date = new Date()): number {
+  const months = quarterMonths(asOf);
+  return sum(
+    entries
+      .filter(
+        (e) =>
+          e.type === "license_revoke" &&
+          e.costType === "recurring" &&
+          e.amount < 0 &&
+          months.includes(e.createdAt.slice(0, 7)),
+      )
+      .map((e) => Math.abs(e.amount)),
+  );
 }
 
 /**
