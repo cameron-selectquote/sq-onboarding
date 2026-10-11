@@ -28,11 +28,50 @@ import {OnboardingExecutor} from '@/lib/onboarding';
 import {OffboardingService} from '@/lib/offboarding';
 import {NotificationService} from '@/lib/notifications';
 import {MockAiClient} from '@/lib/ai';
-import {StrandsAiClient} from '@/lib/strands-ai';
 import type {Repository} from '@/lib/repository';
-import type {AiClient} from '@/lib/ai';
+import type {AiClient, BriefBlurb, TemplateMatch} from '@/lib/ai';
 import {hasBedrockCreds} from '@/lib/bedrock';
 import {loadSeed, seedData} from '@/data/seed';
+
+/**
+ * An `AiClient` that defers loading the Strands SDK until the first call.
+ *
+ * `store.ts` is imported by API routes AND by the unit tests (via the shared
+ * services). The Strands SDK ships ESM-only, which ts-jest's CommonJS runtime
+ * can't parse, so a *static* import of `StrandsAiClient` here would crash any
+ * test that touches the store — even though tests run with no Bedrock creds and
+ * never call the AI. Deferring the import to the first method call keeps the
+ * SDK out of the module graph entirely in that path. It's only ever
+ * constructed when `hasBedrockCreds()` is true, i.e. at runtime with creds.
+ */
+class LazyStrandsAiClient implements AiClient {
+  private delegate: Promise<AiClient> | null = null;
+
+  constructor(private readonly repo: Repository) {}
+
+  private load(): Promise<AiClient> {
+    if (!this.delegate) {
+      this.delegate = import('@/lib/strands-ai').then(
+        (m) => new m.StrandsAiClient(this.repo),
+      );
+    }
+    return this.delegate;
+  }
+
+  async matchTemplate(input: {
+    title: string;
+    offerText?: string;
+  }): Promise<TemplateMatch> {
+    return (await this.load()).matchTemplate(input);
+  }
+
+  async draftBrief(input: {
+    hireName: string;
+    appNames: string[];
+  }): Promise<BriefBlurb[]> {
+    return (await this.load()).draftBrief(input);
+  }
+}
 
 interface Services {
   repo: Repository;
@@ -94,7 +133,10 @@ function build(): {services: Services; repo: SqliteRepository} {
       // Strands-backed AI (Bedrock) when creds exist; deterministic mock
       // otherwise, so the demo and tests run offline. Same graceful-degradation
       // policy as the Genie — the one `hasBedrockCreds()` check decides both.
-      ai: hasBedrockCreds() ? new StrandsAiClient(repo) : new MockAiClient(),
+      // Built lazily so the Strands SDK (ESM-only) is never pulled into module
+      // load — importing it statically breaks ts-jest's CommonJS test runtime.
+      ai:
+        hasBedrockCreds() ? new LazyStrandsAiClient(repo) : new MockAiClient(),
     },
   };
 }

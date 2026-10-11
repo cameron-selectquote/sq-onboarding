@@ -1,6 +1,7 @@
 import {notFound} from 'next/navigation';
 import {getServices} from '@/server/store';
 import type {Task, TaskStatus} from '@/lib/types';
+import {seatPools} from '@/lib/seats';
 import {Avatar, PageHead, SegLinks, Shell} from '../../_components/Shell';
 import {
   AssignSeatForm,
@@ -90,6 +91,9 @@ export default async function TeamQueue({
     (l) => l.status === 'revoked' && l.grantedAt === null,
   );
   const base = `/team/${team}`;
+  // Seat pools for the IT "assign an extra seat" form: only apps we own seats
+  // for, so the dropdown reflects real remaining capacity.
+  const pools = seatPools(apps, licenses).filter((p) => p.owned > 0);
 
   return (
     <Shell active={base}>
@@ -157,13 +161,13 @@ export default async function TeamQueue({
             </div>
           </section>
 
-          {team === "it" && (
-            <section className="panel" style={{ padding: "16px 20px 20px" }}>
-              <span className="panel-title" style={{ fontSize: 18 }}>
+          {team === 'it' && (
+            <section className='panel' style={{padding: '16px 20px 20px'}}>
+              <span className='panel-title' style={{fontSize: 18}}>
                 Assign an extra seat
               </span>
               <AssignSeatForm
-                hires={hires.map((h) => ({ id: h.id, name: h.name }))}
+                hires={hires.map((h) => ({id: h.id, name: h.name}))}
                 apps={pools.map((p) => ({
                   id: p.appId,
                   name: p.name,

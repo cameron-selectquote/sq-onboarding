@@ -16,6 +16,8 @@ async function seedOffboardable(): Promise<Repository> {
     category: 'dev',
     costPerSeat: 21,
     billing: 'monthly',
+    seatsOwned: 250,
+    seatsInUseBaseline: 248,
   });
   await repo.appCatalog.insert({
     id: 'slack',
@@ -23,6 +25,8 @@ async function seedOffboardable(): Promise<Repository> {
     category: 'comms',
     costPerSeat: 8,
     billing: 'monthly',
+    seatsOwned: 500,
+    seatsInUseBaseline: 410,
   });
   await repo.assetCatalog.insert({
     id: 'mbp16',
