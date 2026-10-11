@@ -373,18 +373,57 @@ const SCHEMA = {
   } as SchemaEntry<Candidate>,
 } as const;
 
-/** Create every table if it doesn't already exist. */
-function ensureSchema(db: DatabaseType): void {
-  for (const entry of Object.values(SCHEMA) as SchemaEntry<{id: string}>[]) {
-    const columnsDdl = entry.spec.columns
-      .map((c) => columnDdl(c, entry.fieldTypes))
-      .join(', ');
-    db.exec(`CREATE TABLE IF NOT EXISTS "${entry.spec.table}" (${columnsDdl})`);
-  }
+/** A column added to an existing table by `ensureSchema`. */
+export interface AddedColumn {
+  /** Repository collection key, e.g. "appCatalog". */
+  collection: string;
+  table: string;
+  column: string;
+}
+
+/**
+ * Create every table if it doesn't already exist, then add any column the
+ * schema defines but an older DB file lacks. `CREATE TABLE IF NOT EXISTS`
+ * alone never touches an existing table, so a persisted store from an earlier
+ * release would fail with "no such column" as soon as a field is added.
+ *
+ * Additive only: columns are never dropped, renamed, or retyped. Added columns
+ * start NULL on existing rows; see `backfillSeedFields` in src/data/seed.ts.
+ */
+function ensureSchema(db: DatabaseType): AddedColumn[] {
+  const added: AddedColumn[] = [];
+  const migrate = db.transaction(() => {
+    for (const [collection, entry] of Object.entries(SCHEMA) as [
+      string,
+      SchemaEntry<{id: string}>,
+    ][]) {
+      const {table, columns} = entry.spec;
+      const columnsDdl = columns
+        .map((c) => columnDdl(c, entry.fieldTypes))
+        .join(', ');
+      db.exec(`CREATE TABLE IF NOT EXISTS "${table}" (${columnsDdl})`);
+
+      const existing = new Set(
+        (db.prepare(`PRAGMA table_info("${table}")`).all() as {name: string}[])
+          .map((c) => c.name),
+      );
+      for (const col of columns) {
+        if (existing.has(col.name)) continue;
+        db.exec(
+          `ALTER TABLE "${table}" ADD COLUMN ${columnDdl(col, entry.fieldTypes)}`,
+        );
+        added.push({collection, table, column: col.name});
+      }
+    }
+  });
+  migrate();
+  return added;
 }
 
 export class SqliteRepository implements Repository {
   readonly db: DatabaseType;
+  /** Columns added to an existing DB file on open (empty for a fresh/current file). */
+  readonly addedColumns: AddedColumn[];
 
   companies: Collection<Company>;
   users: Collection<User>;
@@ -405,7 +444,7 @@ export class SqliteRepository implements Repository {
     this.db = new Database(filename);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
-    ensureSchema(this.db);
+    this.addedColumns = ensureSchema(this.db);
 
     this.companies = new SqliteCollection(this.db, SCHEMA.companies.spec);
     this.users = new SqliteCollection(this.db, SCHEMA.users.spec);
