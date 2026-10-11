@@ -129,6 +129,15 @@ export function canCallApi(role: AppRole): boolean {
   return role !== 'employee';
 }
 
+/**
+ * May this account wipe and reseed the store (POST /api/dev/reset)? In dev,
+ * anyone who passed the API gate. In production, only a real admin — checked
+ * against the account's real role, not the role it is viewing as.
+ */
+export function canResetStore(realRole: AppRole, isProduction: boolean): boolean {
+  return !isProduction || realRole === "admin";
+}
+
 /** Only a real admin gets the role picker. */
 export function canSwitchRole(realRole: AppRole): boolean {
   return realRole === 'admin';

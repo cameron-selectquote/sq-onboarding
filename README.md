@@ -126,7 +126,7 @@ Available endpoints: `POST /api/hires/import`, `GET /api/hires`,
 `GET /api/openapi`, `POST /api/ai/match-template`, `GET /api/genie`,
 `POST /api/genie`.
 
-### Resetting the seed data (dev only)
+### Resetting the seed data
 
 The store persists to a SQLite file, so a demo run leaves it dirty. To get back
 to the first-boot baseline (red reclaim banner) without restarting the server:
@@ -135,10 +135,25 @@ to the first-boot baseline (red reclaim banner) without restarting the server:
 curl -X POST http://localhost:3000/api/dev/reset
 ```
 
-It wipes every table and reloads the committed seed, returning per-collection
-row counts. **Dev-only:** the route refuses with `404` when
-`NODE_ENV === 'production'`, so it can't touch real data — but it has no other
-auth gate, so don't expose a non-production build to anything you care about.
+It first snapshots the current DB to `data/provision.sqlite-backup-<timestamp>`
+(gitignored), then wipes every table and reloads the committed seed, returning
+the backup path and per-collection row counts. If the backup fails, nothing is
+wiped. Like every API route it needs a signed-in session cookie.
+
+Access: in dev, any account with API access (admin, manager). In production,
+**only the `admin` account** (its real role, not a view-as role). All demo
+accounts share `DEMO_PASSWORD`, so anyone with that password can sign in as
+admin and reset prod. Backups are never pruned; delete old ones by hand.
+
+To restore a backup, stop the server, then:
+
+```bash
+rm -f data/provision.sqlite-wal data/provision.sqlite-shm
+cp data/provision.sqlite-backup-<timestamp> data/provision.sqlite
+```
+
+Note that `rm -f data/provision.sqlite*` (the clean-reset command above) also
+deletes backups.
 
 ## Genie (Strands Agents)
 
